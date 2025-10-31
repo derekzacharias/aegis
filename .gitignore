@@ -1,0 +1,17 @@
+# Ignore everything
+*
+# Allow local git config
+gitignore
+!/.gitignore
+!/README.md
+!/docs/
+!/docs/*
+!/apps/
+!/apps/**/*
+!/libs/
+!/libs/**/*
+!/nx.json
+!/package.json
+!/tsconfig.base.json
+!/workspace.json
+!/jest.preset.js

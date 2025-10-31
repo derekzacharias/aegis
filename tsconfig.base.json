@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "Compliance Platform Base",
+  "compilerOptions": {
+    "target": "ES2021",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "allowJs": false,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@compliance/api/*": ["apps/api/src/*"],
+      "@compliance/web/*": ["apps/web/src/*"],
+      "@compliance/worker/*": ["apps/worker/src/*"],
+      "@compliance/shared/*": ["libs/shared/src/*"]
+    }
+  },
+  "exclude": ["node_modules", "tmp"]
+}

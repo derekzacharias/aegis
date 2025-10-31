@@ -1,0 +1,262 @@
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id            String        @id @default(cuid())
+  name          String
+  slug          String        @unique
+  impactLevel   ImpactLevel   @default(MODERATE)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  users         User[]
+  frameworks    Framework[]
+  assessments   AssessmentProject[]
+  evidenceItems EvidenceItem[]
+  tasks         Task[]
+  reports       ReportArtifact[]
+  integrations  IntegrationConnection[]
+}
+
+model User {
+  id             String        @id @default(cuid())
+  email          String        @unique
+  firstName      String?
+  lastName       String?
+  role           UserRole      @default(ANALYST)
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  organizationId String
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  assessments    AssessmentProject[] @relation("AssessmentOwners")
+}
+
+model Framework {
+  id             String      @id
+  name           String
+  version        String
+  description    String
+  family         FrameworkFamily
+  controlCount   Int
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  organizationId String?
+  controls       Control[]
+  mappings       ControlMapping[] @relation("SourceMappings")
+  mappedBy       ControlMapping[] @relation("TargetMappings")
+}
+
+model Control {
+  id           String   @id
+  framework    Framework @relation(fields: [frameworkId], references: [id], onDelete: Cascade)
+  frameworkId  String
+  family       String
+  title        String
+  description  String
+  priority     ControlPriority @default(P2)
+  mappings     ControlMapping[] @relation("ControlMappings")
+  assessmentControls AssessmentControl[]
+}
+
+model ControlMapping {
+  id             String  @id @default(cuid())
+  sourceControl  Control @relation("ControlMappings", fields: [sourceControlId], references: [id])
+  sourceControlId String
+  targetControl  Control @relation("TargetMappings", fields: [targetControlId], references: [id])
+  targetControlId String
+  confidence     Float   @default(0.5)
+  rationale      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model AssessmentProject {
+  id             String             @id @default(cuid())
+  name           String
+  status         AssessmentStatus   @default(DRAFT)
+  organization   Organization       @relation(fields: [organizationId], references: [id])
+  organizationId String
+  owner          User?              @relation("AssessmentOwners", fields: [ownerId], references: [id])
+  ownerId        String?
+  targetMaturity Int?               @db.SmallInt
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  controls       AssessmentControl[]
+  frameworks     AssessmentFramework[]
+  reports        ReportArtifact[]
+  tasks          Task[]
+}
+
+model AssessmentFramework {
+  id          String             @id @default(cuid())
+  assessment  AssessmentProject  @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  assessmentId String
+  framework   Framework          @relation(fields: [frameworkId], references: [id])
+  frameworkId String
+}
+
+model AssessmentControl {
+  id             String              @id @default(cuid())
+  assessment     AssessmentProject   @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  assessmentId   String
+  control        Control             @relation(fields: [controlId], references: [id])
+  controlId      String
+  status         ControlStatus       @default(UNASSESSED)
+  owner          User?               @relation(fields: [ownerId], references: [id])
+  ownerId        String?
+  dueDate        DateTime?
+  comments       String?
+  evidenceLinks  AssessmentEvidence[]
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+}
+
+model EvidenceItem {
+  id             String               @id @default(cuid())
+  organization   Organization         @relation(fields: [organizationId], references: [id])
+  organizationId String
+  name           String
+  storageUri     String
+  checksum       String?
+  uploadedBy     User?                @relation(fields: [uploadedById], references: [id])
+  uploadedById   String?
+  uploadedAt     DateTime             @default(now())
+  reviewDue      DateTime?
+  status         EvidenceStatus       @default(PENDING)
+  controls       AssessmentEvidence[]
+  frameworks     EvidenceFramework[]
+}
+
+model EvidenceFramework {
+  id          String       @id @default(cuid())
+  evidence    EvidenceItem @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+  evidenceId  String
+  framework   Framework    @relation(fields: [frameworkId], references: [id])
+  frameworkId String
+}
+
+model AssessmentEvidence {
+  id             String            @id @default(cuid())
+  assessmentControl AssessmentControl @relation(fields: [assessmentControlId], references: [id], onDelete: Cascade)
+  assessmentControlId String
+  evidence        EvidenceItem     @relation(fields: [evidenceId], references: [id])
+  evidenceId      String
+}
+
+model Task {
+  id             String           @id @default(cuid())
+  assessment     AssessmentProject? @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  assessmentId   String?
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  organizationId String
+  title          String
+  description    String?
+  status         TaskStatus       @default(OPEN)
+  priority       TaskPriority     @default(MEDIUM)
+  owner          User?            @relation(fields: [ownerId], references: [id])
+  ownerId        String?
+  dueDate        DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+}
+
+model ReportArtifact {
+  id             String             @id @default(cuid())
+  assessment     AssessmentProject  @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  assessmentId   String
+  organization   Organization       @relation(fields: [organizationId], references: [id])
+  organizationId String
+  format         ReportFormat
+  storageUri     String
+  requestedBy    User?              @relation(fields: [requestedById], references: [id])
+  requestedById  String?
+  createdAt      DateTime           @default(now())
+}
+
+model IntegrationConnection {
+  id             String            @id @default(cuid())
+  organization   Organization      @relation(fields: [organizationId], references: [id])
+  organizationId String
+  provider       IntegrationProvider
+  clientId       String
+  clientSecret   String
+  baseUrl        String
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+}
+
+enum ImpactLevel {
+  LOW
+  MODERATE
+  HIGH
+}
+
+enum UserRole {
+  ADMIN
+  ANALYST
+  AUDITOR
+  READ_ONLY
+}
+
+enum FrameworkFamily {
+  NIST
+  CIS
+  PCI
+  CUSTOM
+}
+
+enum ControlPriority {
+  P0
+  P1
+  P2
+  P3
+}
+
+enum AssessmentStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETE
+}
+
+enum ControlStatus {
+  UNASSESSED
+  SATISFIED
+  PARTIAL
+  UNSATISFIED
+  NOT_APPLICABLE
+}
+
+enum EvidenceStatus {
+  PENDING
+  APPROVED
+  ARCHIVED
+}
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  BLOCKED
+  COMPLETE
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ReportFormat {
+  HTML
+  PDF
+}
+
+enum IntegrationProvider {
+  JIRA
+  SERVICENOW
+}

@@ -1,0 +1,56 @@
+{
+  "name": "api",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/api/src",
+  "projectType": "application",
+  "implicitDependencies": [],
+  "targets": {
+    "build": {
+      "executor": "@nx/node:build",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/apps/api",
+        "main": "apps/api/src/main.ts",
+        "tsConfig": "apps/api/tsconfig.app.json",
+        "assets": ["apps/api/src/assets"]
+      }
+    },
+    "serve": {
+      "executor": "@nx/node:execute",
+      "options": {
+        "buildTarget": "api:build"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "options": {
+        "lintFilePatterns": ["apps/api/src/**/*.ts"]
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["coverage/apps/api"],
+      "options": {
+        "jestConfig": "apps/api/jest.config.ts",
+        "passWithNoTests": true
+      }
+    },
+    "prisma-generate": {
+      "executor": "@nx/js:ts-node",
+      "options": {
+        "script": "node_modules/prisma/build/index.js",
+        "args": ["generate"],
+        "cwd": "apps/api"
+      }
+    },
+    "prisma-migrate": {
+      "executor": "@nx/js:ts-node",
+      "options": {
+        "script": "node_modules/prisma/build/index.js",
+        "args": ["migrate", "deploy"],
+        "cwd": "apps/api"
+      }
+    }
+  },
+  "tags": ["scope:api", "type:service"]
+}
