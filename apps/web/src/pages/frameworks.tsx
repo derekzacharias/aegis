@@ -13,6 +13,7 @@ import {
   useColorModeValue
 } from '@chakra-ui/react';
 import { useMemo, useState } from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 import { useFrameworks } from '../hooks/use-frameworks';
 
 const FrameworksPage = () => {
@@ -90,7 +91,13 @@ const FrameworksPage = () => {
                   {framework.controlCount} controls
                 </Text>
               </HStack>
-              <Button variant="outline" colorScheme="brand" size="sm">
+              <Button
+                as={RouterLink}
+                to={`/frameworks/${framework.id}/catalog`}
+                variant="outline"
+                colorScheme="brand"
+                size="sm"
+              >
                 Explore Control Catalog
               </Button>
             </Stack>

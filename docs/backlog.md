@@ -7,6 +7,7 @@
 4. **Report Rendering** – Integrate Puppeteer in worker to render HTML templates and produce FedRAMP-ready PDFs; add storage handling.
 5. **Integration Webhooks** – Complete Jira/ServiceNow connectors with OAuth, webhook ingestion, and mapping configuration.
 6. **Unit & E2E Tests** – Add Jest and Playwright coverage for critical flows (framework browsing, assessment creation, report queueing).
+7. **Dockerized Deployments** – Create Dockerfiles for services, add Docker Compose orchestration, and document container-based rollout.
 
 ## Mid-term
 1. **Control Crosswalk Engine** – Compute mappings between frameworks, suggest evidence reuse, expose API and UI visualizations.

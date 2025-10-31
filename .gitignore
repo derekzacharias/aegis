@@ -10,6 +10,8 @@ gitignore
 !/apps/**/*
 !/libs/
 !/libs/**/*
+!/tools/
+!/tools/**/*
 !/nx.json
 !/package.json
 !/tsconfig.base.json

@@ -2,6 +2,7 @@ import { Box, Flex, useColorModeValue } from '@chakra-ui/react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import DashboardPage from './pages/dashboard';
 import FrameworksPage from './pages/frameworks';
+import FrameworkControlCatalogPage from './pages/framework-control-catalog';
 import AssessmentsPage from './pages/assessments';
 import EvidencePage from './pages/evidence';
 import ReportsPage from './pages/reports';
@@ -22,6 +23,7 @@ const App = () => {
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/frameworks" element={<FrameworksPage />} />
+            <Route path="/frameworks/:frameworkId/catalog" element={<FrameworkControlCatalogPage />} />
             <Route path="/assessments" element={<AssessmentsPage />} />
             <Route path="/evidence" element={<EvidencePage />} />
             <Route path="/reports" element={<ReportsPage />} />
