@@ -2,6 +2,7 @@ import {
   Badge,
   Box,
   Button,
+  ButtonGroup,
   Checkbox,
   CheckboxGroup,
   FormControl,
@@ -37,6 +38,7 @@ import {
   useCreateAssessment,
   useUpdateAssessmentStatus
 } from '../hooks/use-assessments';
+import type { AssessmentSummary } from '../hooks/use-assessments';
 import { useFrameworks } from '../hooks/use-frameworks';
 
 const statusColors: Record<string, string> = {
@@ -59,6 +61,8 @@ const AssessmentsPage = () => {
   const createAssessment = useCreateAssessment();
   const updateStatus = useUpdateAssessmentStatus();
   const [pendingStatusId, setPendingStatusId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'in-progress' | 'complete'>('all');
+  const [search, setSearch] = useState('');
   const [formState, setFormState] = useState<{
     name: string;
     owner: string;
@@ -79,6 +83,59 @@ const AssessmentsPage = () => {
       })) ?? [],
     [frameworks]
   );
+
+  const filteredAssessments = useMemo(() => {
+    if (!assessments) {
+      return [];
+    }
+
+    const term = search.trim().toLowerCase();
+    return assessments.filter((assessment) => {
+      const matchesStatus = statusFilter === 'all' || assessment.status === statusFilter;
+      const matchesSearch =
+        !term ||
+        assessment.name.toLowerCase().includes(term) ||
+        assessment.owner.toLowerCase().includes(term);
+      return matchesStatus && matchesSearch;
+    });
+  }, [assessments, search, statusFilter]);
+
+  const renderProgress = (progress: AssessmentSummary['progress']) => {
+    const total = progress.total || 1;
+    const satisfiedWidth = (progress.satisfied / total) * 100;
+    const partialWidth = (progress.partial / total) * 100;
+    const unsatisfiedWidth = (progress.unsatisfied / total) * 100;
+
+    return (
+      <VStack align="stretch" spacing={2} mt={2} fontSize="xs" color="gray.400">
+        <HStack justify="space-between">
+          <Text>
+            {progress.satisfied} / {progress.total} controls satisfied
+          </Text>
+          <Text>{Math.round((progress.satisfied / total) * 100)}%</Text>
+        </HStack>
+        <HStack spacing={0} borderRadius="full" overflow="hidden" h={2} bg="gray.700">
+          <Box w={`${satisfiedWidth}%`} h="100%" bg="green.400" />
+          <Box w={`${partialWidth}%`} h="100%" bg="yellow.400" />
+          <Box w={`${unsatisfiedWidth}%`} h="100%" bg="red.400" />
+        </HStack>
+        <HStack spacing={4} color="gray.500">
+          <HStack spacing={1}>
+            <Box w={2} h={2} borderRadius="full" bg="green.400" />
+            <Text>Satisfied</Text>
+          </HStack>
+          <HStack spacing={1}>
+            <Box w={2} h={2} borderRadius="full" bg="yellow.400" />
+            <Text>Partial</Text>
+          </HStack>
+          <HStack spacing={1}>
+            <Box w={2} h={2} borderRadius="full" bg="red.400" />
+            <Text>Gap</Text>
+          </HStack>
+        </HStack>
+      </VStack>
+    );
+  };
 
   const resetForm = () => {
     setFormState({
@@ -176,8 +233,33 @@ const AssessmentsPage = () => {
           </Button>
         </HStack>
 
+        <Stack direction={{ base: 'column', md: 'row' }} spacing={4} align={{ base: 'stretch', md: 'center' }}>
+          <Input
+            placeholder="Search by assessment or owner..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            maxW={{ base: '100%', md: '320px' }}
+          />
+          <ButtonGroup size="sm" isAttached>
+            {['all', 'draft', 'in-progress', 'complete'].map((status) => {
+              const label = status === 'all' ? 'All' : status.replace('-', ' ');
+              const isActive = statusFilter === status;
+              return (
+                <Button
+                  key={status}
+                  onClick={() => setStatusFilter(status as typeof statusFilter)}
+                  variant={isActive ? 'solid' : 'outline'}
+                  colorScheme="brand"
+                >
+                  {label}
+                </Button>
+              );
+            })}
+          </ButtonGroup>
+        </Stack>
+
         <SimpleGrid columns={{ base: 1, xl: 2 }} spacing={5}>
-          {assessments?.map((assessment) => (
+          {filteredAssessments.map((assessment) => (
             <Box
               key={assessment.id}
               borderWidth="1px"
@@ -229,6 +311,7 @@ const AssessmentsPage = () => {
                     Frameworks:{' '}
                     {assessment.frameworkIds.map((id) => resolveFramework(id)).join(', ')}
                   </Text>
+                  {renderProgress(assessment.progress)}
                 </VStack>
                 <Button variant="outline" size="sm" colorScheme="brand">
                   Open Workspace

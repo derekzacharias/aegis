@@ -11,6 +11,7 @@ import {
   Spinner,
   Stack,
   Switch,
+  Tag,
   Text,
   useToast,
   VStack
@@ -18,6 +19,7 @@ import {
 import { FormEvent, useMemo, useState } from 'react';
 import {
   IntegrationProvider,
+  IntegrationSummary,
   useConnectIntegration,
   useIntegrations
 } from '../../hooks/use-integrations';
@@ -47,10 +49,16 @@ const IntegrationsSettings = () => {
   const [formState, setFormState] = useState<IntegrationFormState>(defaultState);
 
   const integrationMap = useMemo(() => {
-    const map = new Map<IntegrationProvider, typeof integrations[number]>();
+    const map = new Map<IntegrationProvider, IntegrationSummary>();
     integrations?.forEach((integration) => map.set(integration.provider, integration));
     return map;
   }, [integrations]);
+
+  const statusBadge: Record<IntegrationSummary['status'], { label: string; color: string }> = {
+    connected: { label: 'Connected', color: 'green' },
+    pending: { label: 'Pending', color: 'yellow' },
+    error: { label: 'Error', color: 'red' }
+  };
 
   const handleSubmit = async (
     event: FormEvent<HTMLFormElement>,
@@ -82,12 +90,20 @@ const IntegrationsSettings = () => {
   const renderCard = (provider: IntegrationProvider, colorScheme: string) => {
     const integration = integrationMap.get(provider);
     const friendlyName = provider === 'JIRA' ? 'Jira' : 'ServiceNow';
+    const status = integration ? statusBadge[integration.status] : null;
     return (
       <Box flex="1" borderWidth="1px" borderRadius="lg" p={5}>
         <HStack justify="space-between" mb={4} align="start">
-          <Heading size="sm">{friendlyName}</Heading>
-          <Badge colorScheme={colorScheme}>
-            {integration ? 'Connected' : 'Not connected'}
+          <VStack align="start" spacing={0}>
+            <Heading size="sm">{friendlyName}</Heading>
+            {integration?.lastSyncedAt && (
+              <Text fontSize="xs" color="gray.500">
+                Last sync {new Date(integration.lastSyncedAt).toLocaleString()}
+              </Text>
+            )}
+          </VStack>
+          <Badge colorScheme={status?.color ?? colorScheme}>
+            {status?.label ?? 'Not connected'}
           </Badge>
         </HStack>
         <form onSubmit={(event) => handleSubmit(event, provider)}>
@@ -146,6 +162,15 @@ const IntegrationsSettings = () => {
                 }
               />
             </FormControl>
+            {integration && (
+              <Stack spacing={2} fontSize="sm" color="gray.400">
+                <HStack spacing={3}>
+                  <Tag colorScheme="blue">Projects mapped: {integration.projectsMapped}</Tag>
+                  <Tag colorScheme="purple">Issues linked: {integration.issuesLinked}</Tag>
+                </HStack>
+                {integration.notes && <Text color="orange.300">{integration.notes}</Text>}
+              </Stack>
+            )}
             <Button
               type="submit"
               colorScheme="brand"
@@ -154,6 +179,11 @@ const IntegrationsSettings = () => {
             >
               {integration ? 'Update Connection' : `Connect ${friendlyName}`}
             </Button>
+            {integration && (
+              <Button variant="ghost" colorScheme="brand" size="sm">
+                Test connection
+              </Button>
+            )}
           </Stack>
         </form>
       </Box>

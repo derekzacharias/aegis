@@ -3,6 +3,7 @@ import {
   Grid,
   GridItem,
   Heading,
+  Icon,
   HStack,
   SimpleGrid,
   Stat,
@@ -12,36 +13,42 @@ import {
   Text,
   VStack
 } from '@chakra-ui/react';
+import { FiArrowDownRight, FiArrowRight, FiArrowUpRight } from 'react-icons/fi';
 import ComplianceGauge from '../widgets/compliance-gauge';
 import RiskHeatmap from '../widgets/risk-heatmap';
 import UpcomingActivities from '../widgets/upcoming-activities';
+import { useDashboardOverview } from '../hooks/use-dashboard';
+import { useMemo } from 'react';
+
+const trendIconMap = {
+  up: FiArrowUpRight,
+  down: FiArrowDownRight,
+  steady: FiArrowRight
+} as const;
 
 const DashboardPage = () => {
+  const { data, isFetching } = useDashboardOverview();
+
+  const stats = useMemo(() => data?.stats ?? [], [data]);
+
   return (
     <VStack align="stretch" spacing={6}>
       <Heading size="lg">Operational Posture</Heading>
 
       <SimpleGrid columns={{ base: 1, md: 4 }} spacing={4}>
-        <Stat bg="gray.800" borderRadius="lg" p={4}>
-          <StatLabel>Overall Compliance</StatLabel>
-          <StatNumber>72%</StatNumber>
-          <StatHelpText>+6% QoQ</StatHelpText>
-        </Stat>
-        <Stat bg="gray.800" borderRadius="lg" p={4}>
-          <StatLabel>Open Gaps</StatLabel>
-          <StatNumber>48</StatNumber>
-          <StatHelpText>12 high risk</StatHelpText>
-        </Stat>
-        <Stat bg="gray.800" borderRadius="lg" p={4}>
-          <StatLabel>Evidence Reviews</StatLabel>
-          <StatNumber>19</StatNumber>
-          <StatHelpText>Due this week</StatHelpText>
-        </Stat>
-        <Stat bg="gray.800" borderRadius="lg" p={4}>
-          <StatLabel>FedRAMP Progress</StatLabel>
-          <StatNumber>58%</StatNumber>
-          <StatHelpText>Moderate baseline</StatHelpText>
-        </Stat>
+        {stats.map((stat) => (
+          <Stat key={stat.id} bg="gray.800" borderRadius="lg" p={4} borderWidth="1px" borderColor="gray.700">
+            <HStack justify="space-between" align="center">
+              <StatLabel>{stat.label}</StatLabel>
+              <Icon
+                as={trendIconMap[stat.trend]}
+                color={stat.trend === 'up' ? 'green.400' : stat.trend === 'down' ? 'red.400' : 'gray.400'}
+              />
+            </HStack>
+            <StatNumber>{stat.value}</StatNumber>
+            <StatHelpText>{stat.helper}</StatHelpText>
+          </Stat>
+        ))}
       </SimpleGrid>
 
       <Grid templateColumns={{ base: '1fr', xl: '2fr 3fr' }} gap={6}>
@@ -50,7 +57,13 @@ const DashboardPage = () => {
             <Heading size="md" mb={4}>
               Compliance Trend
             </Heading>
-            <ComplianceGauge />
+            {data && (
+              <ComplianceGauge
+                current={data.compliance.current}
+                target={data.compliance.target}
+                quarters={data.compliance.quarters}
+              />
+            )}
           </Box>
         </GridItem>
         <GridItem>
@@ -61,12 +74,17 @@ const DashboardPage = () => {
                 Weighted by control criticality
               </Text>
             </HStack>
-            <RiskHeatmap />
+            {data && <RiskHeatmap cells={data.riskMatrix} />}
           </Box>
         </GridItem>
       </Grid>
 
-      <UpcomingActivities />
+      {data && <UpcomingActivities activities={data.activities} />}
+      {isFetching && (
+        <Text fontSize="sm" color="gray.500">
+          Refreshing metrics…
+        </Text>
+      )}
     </VStack>
   );
 };

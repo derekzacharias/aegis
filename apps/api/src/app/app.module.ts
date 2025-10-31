@@ -1,13 +1,13 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import configuration from '../config/configuration';
-import { FrameworkModule } from '../framework/framework.module';
 import { AssessmentModule } from '../assessment/assessment.module';
 import { EvidenceModule } from '../evidence/evidence.module';
 import { HealthController } from './health.controller';
-import { DatabaseModule } from '../database/database.module';
 import { IntegrationModule } from '../integration/integration.module';
 import { ReportingModule } from '../reporting/reporting.module';
+import { FrameworkModule } from '../framework/framework.module';
+import { DashboardModule } from '../dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -15,8 +15,8 @@ import { ReportingModule } from '../reporting/reporting.module';
       isGlobal: true,
       load: [configuration]
     }),
-    DatabaseModule,
     FrameworkModule,
+    DashboardModule,
     AssessmentModule,
     EvidenceModule,
     IntegrationModule,

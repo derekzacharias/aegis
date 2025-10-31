@@ -9,6 +9,11 @@ export interface IntegrationSummary {
   baseUrl: string;
   clientId: string;
   createdAt: string;
+  status: 'connected' | 'error' | 'pending';
+  lastSyncedAt: string | null;
+  issuesLinked: number;
+  projectsMapped: number;
+  notes: string | null;
 }
 
 interface ConnectIntegrationInput {
@@ -24,14 +29,24 @@ const fallback: IntegrationSummary[] = [
     provider: 'JIRA',
     baseUrl: 'https://your-domain.atlassian.net',
     clientId: 'demo-client-id',
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    status: 'connected',
+    lastSyncedAt: new Date().toISOString(),
+    issuesLinked: 128,
+    projectsMapped: 4,
+    notes: null
   },
   {
     id: 'servicenow',
     provider: 'SERVICENOW',
     baseUrl: 'https://instance.service-now.com',
     clientId: 'demo-client-id',
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    status: 'pending',
+    lastSyncedAt: null,
+    issuesLinked: 0,
+    projectsMapped: 1,
+    notes: 'Awaiting OAuth approval from ServiceNow admin.'
   }
 ];
 

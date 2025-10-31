@@ -1,4 +1,4 @@
-import { FrameworkFamily } from '@prisma/client';
+import { FrameworkFamily } from '../framework.types';
 
 export const frameworks = [
   {
@@ -6,7 +6,7 @@ export const frameworks = [
     name: 'NIST SP 800-53',
     version: 'Rev 5',
     description: 'Security and Privacy Controls for Information Systems and Organizations.',
-    family: FrameworkFamily.NIST,
+    family: 'NIST',
     controlCount: 410
   },
   {
@@ -14,7 +14,7 @@ export const frameworks = [
     name: 'NIST Cybersecurity Framework',
     version: '2.0',
     description: 'Framework for improving critical infrastructure cybersecurity.',
-    family: FrameworkFamily.NIST,
+    family: 'NIST',
     controlCount: 106
   },
   {
@@ -22,7 +22,7 @@ export const frameworks = [
     name: 'CIS Critical Security Controls',
     version: '8',
     description: 'Prioritized set of safeguards to mitigate the most pervasive attacks.',
-    family: FrameworkFamily.CIS,
+    family: 'CIS',
     controlCount: 153
   },
   {
@@ -30,7 +30,7 @@ export const frameworks = [
     name: 'PCI DSS',
     version: '4.0',
     description: 'Payment Card Industry Data Security Standard.',
-    family: FrameworkFamily.PCI,
+    family: 'PCI',
     controlCount: 280
   }
 ] satisfies Array<{

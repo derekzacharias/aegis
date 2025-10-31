@@ -1,21 +1,31 @@
 import { Box, Grid, GridItem, Text, VStack } from '@chakra-ui/react';
 
-const cells = [
-  { label: 'Very Low', color: 'green.500', count: 6 },
-  { label: 'Low', color: 'green.400', count: 14 },
-  { label: 'Moderate', color: 'yellow.400', count: 19 },
-  { label: 'High', color: 'orange.400', count: 7 },
-  { label: 'Critical', color: 'red.500', count: 2 }
-];
+export type RiskHeatmapCell = {
+  label: string;
+  count: number;
+  severity: 'very-low' | 'low' | 'moderate' | 'high' | 'critical';
+};
 
-const RiskHeatmap = () => {
+const severityToColor: Record<RiskHeatmapCell['severity'], string> = {
+  'very-low': 'green.500',
+  low: 'green.400',
+  moderate: 'yellow.400',
+  high: 'orange.400',
+  critical: 'red.500'
+};
+
+interface RiskHeatmapProps {
+  cells: RiskHeatmapCell[];
+}
+
+const RiskHeatmap = ({ cells }: RiskHeatmapProps) => {
   return (
     <VStack align="stretch" spacing={3}>
       <Grid templateColumns="repeat(5, 1fr)" gap={3}>
         {cells.map((cell) => (
           <GridItem
             key={cell.label}
-            bg={cell.color}
+            bg={severityToColor[cell.severity]}
             borderRadius="lg"
             p={4}
             textAlign="center"

@@ -9,6 +9,12 @@ export type AssessmentSummary = {
   owner: string;
   createdAt: string;
   updatedAt: string;
+  progress: {
+    satisfied: number;
+    partial: number;
+    unsatisfied: number;
+    total: number;
+  };
 };
 
 const fallback: AssessmentSummary[] = [
@@ -19,7 +25,43 @@ const fallback: AssessmentSummary[] = [
     status: 'in-progress',
     owner: 'compliance-team@example.com',
     createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
+    progress: {
+      satisfied: 142,
+      partial: 98,
+      unsatisfied: 34,
+      total: 310
+    }
+  },
+  {
+    id: 'demo-pci-gap',
+    name: 'PCI DSS 4.0 Gap Analysis',
+    frameworkIds: ['pci-dss-4-0'],
+    status: 'draft',
+    owner: 'payments@example.com',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    progress: {
+      satisfied: 32,
+      partial: 21,
+      unsatisfied: 18,
+      total: 120
+    }
+  },
+  {
+    id: 'demo-cis-review',
+    name: 'CIS v8 Operational Review',
+    frameworkIds: ['cis-v8'],
+    status: 'complete',
+    owner: 'automation@example.com',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    progress: {
+      satisfied: 153,
+      partial: 0,
+      unsatisfied: 0,
+      total: 153
+    }
   }
 ];
 

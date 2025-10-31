@@ -1,4 +1,4 @@
-import { ControlPriority } from '@prisma/client';
+type ControlPriority = 'P0' | 'P1' | 'P2' | 'P3';
 
 export const controls = [
   {
@@ -8,7 +8,7 @@ export const controls = [
     title: 'AC-2 Account Management',
     description:
       'Manage information system accounts, including identifying account types, establishing conditions for group and role membership, and monitoring account usage.',
-    priority: ControlPriority.P1
+    priority: 'P1'
   },
   {
     id: 'ac-17',
@@ -16,7 +16,7 @@ export const controls = [
     family: 'Access Control',
     title: 'AC-17 Remote Access',
     description: 'Establish and document usage restrictions, configuration requirements, and monitoring for remote access.',
-    priority: ControlPriority.P1
+    priority: 'P1'
   },
   {
     id: 'cis-4-1',
@@ -25,7 +25,7 @@ export const controls = [
     title: 'Establish and Maintain a Vulnerability Management Process',
     description:
       'Establish and maintain a documented vulnerability management program that includes scanning, reporting, and remediation.',
-    priority: ControlPriority.P2
+    priority: 'P2'
   },
   {
     id: 'pci-8-2-6',
@@ -33,7 +33,7 @@ export const controls = [
     family: 'Identification and Authentication',
     title: 'User Authentication Processes and Procedures',
     description: 'Ensure strong authentication policies are implemented for user access to cardholder data.',
-    priority: ControlPriority.P0
+    priority: 'P0'
   }
 ] satisfies Array<{
   id: string;

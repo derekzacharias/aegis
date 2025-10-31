@@ -1,7 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { AssessmentStatus as PrismaAssessmentStatus } from '@prisma/client';
+import { Injectable } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
-import { PrismaService } from '../database/prisma.service';
 
 export type AssessmentStatus = 'draft' | 'in-progress' | 'complete';
 
@@ -13,26 +11,19 @@ export interface AssessmentSummary {
   owner: string;
   createdAt: string;
   updatedAt: string;
+  progress: {
+    satisfied: number;
+    partial: number;
+    unsatisfied: number;
+    total: number;
+  };
 }
-
-const STATUS_MAP_FROM_PRISMA: Record<PrismaAssessmentStatus, AssessmentStatus> = {
-  [PrismaAssessmentStatus.DRAFT]: 'draft',
-  [PrismaAssessmentStatus.IN_PROGRESS]: 'in-progress',
-  [PrismaAssessmentStatus.COMPLETE]: 'complete'
-};
-
-const STATUS_MAP_TO_PRISMA: Record<AssessmentStatus, PrismaAssessmentStatus> = {
-  draft: PrismaAssessmentStatus.DRAFT,
-  'in-progress': PrismaAssessmentStatus.IN_PROGRESS,
-  complete: PrismaAssessmentStatus.COMPLETE
-};
 
 @Injectable()
 export class AssessmentService {
-  private readonly logger = new Logger(AssessmentService.name);
-  private readonly fallbackAssessments: Map<string, AssessmentSummary> = new Map();
+  private readonly assessments: Map<string, AssessmentSummary> = new Map();
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor() {
     const now = new Date().toISOString();
     const initialAssessment: AssessmentSummary = {
       id: uuidv4(),
@@ -41,155 +32,94 @@ export class AssessmentService {
       status: 'in-progress',
       owner: 'compliance-team@example.com',
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
+      progress: {
+        satisfied: 142,
+        partial: 98,
+        unsatisfied: 34,
+        total: 310
+      }
     };
 
-    this.fallbackAssessments.set(initialAssessment.id, initialAssessment);
+    this.assessments.set(initialAssessment.id, initialAssessment);
+
+    const draftAssessment: AssessmentSummary = {
+      id: uuidv4(),
+      name: 'PCI DSS 4.0 Gap Analysis',
+      frameworkIds: ['pci-dss-4-0'],
+      status: 'draft',
+      owner: 'payments@example.com',
+      createdAt: now,
+      updatedAt: now,
+      progress: {
+        satisfied: 32,
+        partial: 21,
+        unsatisfied: 18,
+        total: 120
+      }
+    };
+
+    this.assessments.set(draftAssessment.id, draftAssessment);
+
+    const completeAssessment: AssessmentSummary = {
+      id: uuidv4(),
+      name: 'CIS v8 Operational Review',
+      frameworkIds: ['cis-v8'],
+      status: 'complete',
+      owner: 'automation@example.com',
+      createdAt: now,
+      updatedAt: now,
+      progress: {
+        satisfied: 153,
+        partial: 0,
+        unsatisfied: 0,
+        total: 153
+      }
+    };
+
+    this.assessments.set(completeAssessment.id, completeAssessment);
   }
 
   async list(): Promise<AssessmentSummary[]> {
-    try {
-      const assessments = await this.prisma.assessmentProject.findMany({
-        include: {
-          frameworks: true,
-          owner: true
-        },
-        orderBy: {
-          updatedAt: 'desc'
-        }
-      });
-
-      if (!assessments.length) {
-        return this.getFallbackAssessments();
-      }
-
-      return assessments.map((assessment) => ({
-        id: assessment.id,
-        name: assessment.name,
-        frameworkIds: assessment.frameworks.map((f) => f.frameworkId),
-        status: STATUS_MAP_FROM_PRISMA[assessment.status],
-        owner: assessment.owner?.email ?? 'unassigned',
-        createdAt: assessment.createdAt.toISOString(),
-        updatedAt: assessment.updatedAt.toISOString()
-      }));
-    } catch (error) {
-      this.logger.warn(
-        `Failed to load assessments from database, using fallback seed: ${String(error)}`
-      );
-      return this.getFallbackAssessments();
-    }
+    return Array.from(this.assessments.values()).sort((a, b) =>
+      b.updatedAt.localeCompare(a.updatedAt)
+    );
   }
 
   async create(payload: Pick<AssessmentSummary, 'name' | 'frameworkIds' | 'owner'>) {
-    try {
-      const assessment = await this.prisma.assessmentProject.create({
-        data: {
-          name: payload.name,
-          status: PrismaAssessmentStatus.DRAFT,
-          organization: {
-            connectOrCreate: {
-              where: { slug: 'aegis-compliance' },
-              create: {
-                name: 'Aegis Compliance Control Center',
-                slug: 'aegis-compliance'
-              }
-            }
-          },
-          frameworks: {
-            create: payload.frameworkIds.map((frameworkId) => ({
-              framework: {
-                connect: { id: frameworkId }
-              }
-            }))
-          },
-          owner: {
-            connectOrCreate: {
-              where: { email: payload.owner },
-              create: {
-                email: payload.owner,
-                organization: {
-                  connect: { slug: 'aegis-compliance' }
-                }
-              }
-            }
-          }
-        },
-        include: {
-          frameworks: true,
-          owner: true
-        }
-      });
+    const now = new Date().toISOString();
+    const record: AssessmentSummary = {
+      id: uuidv4(),
+      status: 'draft',
+      createdAt: now,
+      updatedAt: now,
+      progress: {
+        satisfied: 0,
+        partial: 0,
+        unsatisfied: 0,
+        total: 0
+      },
+      ...payload
+    };
 
-      return {
-        id: assessment.id,
-        name: assessment.name,
-        frameworkIds: assessment.frameworks.map((f) => f.frameworkId),
-        status: STATUS_MAP_FROM_PRISMA[assessment.status],
-        owner: assessment.owner?.email ?? payload.owner,
-        createdAt: assessment.createdAt.toISOString(),
-        updatedAt: assessment.updatedAt.toISOString()
-      };
-    } catch (error) {
-      this.logger.warn(
-        `Failed to create assessment in database, storing fallback entry: ${String(error)}`
-      );
-
-      const now = new Date().toISOString();
-      const record: AssessmentSummary = {
-        id: uuidv4(),
-        status: 'draft',
-        createdAt: now,
-        updatedAt: now,
-        ...payload
-      };
-
-      this.fallbackAssessments.set(record.id, record);
-      return record;
-    }
+    this.assessments.set(record.id, record);
+    return record;
   }
 
   async updateStatus(id: string, status: AssessmentStatus): Promise<AssessmentSummary> {
-    try {
-      const assessment = await this.prisma.assessmentProject.update({
-        where: { id },
-        data: {
-          status: STATUS_MAP_TO_PRISMA[status]
-        },
-        include: {
-          frameworks: true,
-          owner: true
-        }
-      });
+    const assessment = this.assessments.get(id);
 
-      return {
-        id: assessment.id,
-        name: assessment.name,
-        frameworkIds: assessment.frameworks.map((f) => f.frameworkId),
-        status,
-        owner: assessment.owner?.email ?? 'unassigned',
-        createdAt: assessment.createdAt.toISOString(),
-        updatedAt: assessment.updatedAt.toISOString()
-      };
-    } catch (error) {
-      this.logger.error(`Failed to update assessment ${id}: ${String(error)}`);
-
-      const fallback = this.fallbackAssessments.get(id);
-      if (fallback) {
-        const now = new Date().toISOString();
-        const updated: AssessmentSummary = {
-          ...fallback,
-          status,
-          updatedAt: now
-        };
-        this.fallbackAssessments.set(id, updated);
-        return updated;
-      }
-
-      throw error;
+    if (!assessment) {
+      throw new Error(`Assessment ${id} not found`);
     }
-  }
 
-  private getFallbackAssessments(): AssessmentSummary[] {
-    return Array.from(this.fallbackAssessments.values());
+    const updated: AssessmentSummary = {
+      ...assessment,
+      status,
+      updatedAt: new Date().toISOString()
+    };
+
+    this.assessments.set(id, updated);
+    return updated;
   }
 }

@@ -1,8 +1,8 @@
-import { IsEnum, IsString, IsUrl } from 'class-validator';
-import { IntegrationProvider } from '@prisma/client';
+import { IsIn, IsString, IsUrl } from 'class-validator';
+import { INTEGRATION_PROVIDERS, IntegrationProvider } from '../integration.service';
 
 export class ConnectIntegrationDto {
-  @IsEnum(IntegrationProvider)
+  @IsIn(INTEGRATION_PROVIDERS)
   provider!: IntegrationProvider;
 
   @IsUrl({

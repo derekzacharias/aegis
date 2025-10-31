@@ -10,28 +10,19 @@ import {
   useColorModeValue
 } from '@chakra-ui/react';
 
-const activities = [
-  {
-    title: 'FedRAMP Control AC-2 reauthorization',
-    due: 'Due in 2 days',
-    owner: 'Alex Smith',
-    status: 'High Risk'
-  },
-  {
-    title: 'CIS Control 4: Vulnerability scan import',
-    due: 'Scheduled tomorrow',
-    owner: 'Automation Agent',
-    status: 'Ingest'
-  },
-  {
-    title: 'PCI DSS Control 8 evidence review',
-    due: 'Due in 5 days',
-    owner: 'Maria Chen',
-    status: 'Pending Review'
-  }
-];
+export type Activity = {
+  id: string;
+  title: string;
+  due: string;
+  owner: string;
+  status: string;
+};
 
-const UpcomingActivities = () => {
+interface UpcomingActivitiesProps {
+  activities: Activity[];
+}
+
+const UpcomingActivities = ({ activities }: UpcomingActivitiesProps) => {
   const bg = useColorModeValue('gray.100', 'gray.800');
 
   return (
@@ -42,7 +33,7 @@ const UpcomingActivities = () => {
       <List spacing={4}>
         {activities.map((activity) => (
           <ListItem
-            key={activity.title}
+            key={activity.id}
             borderWidth="1px"
             borderColor={useColorModeValue('gray.200', 'gray.700')}
             borderRadius="md"

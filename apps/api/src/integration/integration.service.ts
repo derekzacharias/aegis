@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { IntegrationProvider } from '@prisma/client';
-import { PrismaService } from '../database/prisma.service';
+import { Injectable } from '@nestjs/common';
+
+export const INTEGRATION_PROVIDERS = ['JIRA', 'SERVICENOW'] as const;
+export type IntegrationProvider = (typeof INTEGRATION_PROVIDERS)[number];
 
 export interface IntegrationSummary {
   id: string;
@@ -8,6 +9,11 @@ export interface IntegrationSummary {
   baseUrl: string;
   clientId: string;
   createdAt: string;
+  status: 'connected' | 'error' | 'pending';
+  lastSyncedAt: string | null;
+  issuesLinked: number;
+  projectsMapped: number;
+  notes: string | null;
 }
 
 interface UpsertIntegrationInput {
@@ -19,115 +25,55 @@ interface UpsertIntegrationInput {
 
 @Injectable()
 export class IntegrationService {
-  private readonly logger = new Logger(IntegrationService.name);
-  private readonly fallback: Map<IntegrationProvider, IntegrationSummary> = new Map();
+  private readonly integrations: Map<IntegrationProvider, IntegrationSummary> = new Map();
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor() {
     const now = new Date().toISOString();
-    this.fallback.set(IntegrationProvider.JIRA, {
+    this.integrations.set('JIRA', {
       id: 'jira',
-      provider: IntegrationProvider.JIRA,
+      provider: 'JIRA',
       baseUrl: 'https://your-domain.atlassian.net',
       clientId: 'demo-client-id',
-      createdAt: now
+      createdAt: now,
+      status: 'connected',
+      lastSyncedAt: now,
+      issuesLinked: 128,
+      projectsMapped: 4,
+      notes: null
     });
-    this.fallback.set(IntegrationProvider.SERVICENOW, {
+    this.integrations.set('SERVICENOW', {
       id: 'servicenow',
-      provider: IntegrationProvider.SERVICENOW,
+      provider: 'SERVICENOW',
       baseUrl: 'https://instance.service-now.com',
       clientId: 'demo-client-id',
-      createdAt: now
+      createdAt: now,
+      status: 'pending',
+      lastSyncedAt: null,
+      issuesLinked: 0,
+      projectsMapped: 1,
+      notes: 'Awaiting OAuth approval from ServiceNow admin.'
     });
   }
 
   async list(): Promise<IntegrationSummary[]> {
-    try {
-      const integrations = await this.prisma.integrationConnection.findMany({
-        orderBy: { createdAt: 'desc' }
-      });
-
-      if (!integrations.length) {
-        return this.getFallback();
-      }
-
-      return integrations.map((integration) => ({
-        id: integration.id,
-        provider: integration.provider,
-        baseUrl: integration.baseUrl,
-        clientId: integration.clientId,
-        createdAt: integration.createdAt.toISOString()
-      }));
-    } catch (error) {
-      this.logger.warn(
-        `Failed to load integrations from database, using fallback entries: ${String(error)}`
-      );
-      return this.getFallback();
-    }
+    return Array.from(this.integrations.values());
   }
 
   async upsert(payload: UpsertIntegrationInput): Promise<IntegrationSummary> {
-    try {
-      const integration = await this.prisma.integrationConnection.upsert({
-        where: {
-          organizationId_provider: {
-            organizationId: await this.ensureOrganization(),
-            provider: payload.provider
-          }
-        },
-        update: {
-          baseUrl: payload.baseUrl,
-          clientId: payload.clientId,
-          clientSecret: payload.clientSecret
-        },
-        create: {
-          organizationId: await this.ensureOrganization(),
-          provider: payload.provider,
-          baseUrl: payload.baseUrl,
-          clientId: payload.clientId,
-          clientSecret: payload.clientSecret
-        }
-      });
+    const summary: IntegrationSummary = {
+      id: payload.provider.toLowerCase(),
+      provider: payload.provider,
+      baseUrl: payload.baseUrl,
+      clientId: payload.clientId,
+      createdAt: new Date().toISOString(),
+      status: 'connected',
+      lastSyncedAt: new Date().toISOString(),
+      issuesLinked: this.integrations.get(payload.provider)?.issuesLinked ?? 0,
+      projectsMapped: this.integrations.get(payload.provider)?.projectsMapped ?? 0,
+      notes: null
+    };
 
-      return {
-        id: integration.id,
-        provider: integration.provider,
-        baseUrl: integration.baseUrl,
-        clientId: integration.clientId,
-        createdAt: integration.createdAt.toISOString()
-      };
-    } catch (error) {
-      this.logger.warn(
-        `Failed to persist integration ${payload.provider}, storing fallback entry: ${String(
-          error
-        )}`
-      );
-
-      const summary: IntegrationSummary = {
-        id: payload.provider.toLowerCase(),
-        provider: payload.provider,
-        baseUrl: payload.baseUrl,
-        clientId: payload.clientId,
-        createdAt: new Date().toISOString()
-      };
-
-      this.fallback.set(payload.provider, summary);
-      return summary;
-    }
-  }
-
-  private getFallback(): IntegrationSummary[] {
-    return Array.from(this.fallback.values());
-  }
-
-  private async ensureOrganization(): Promise<string> {
-    const org = await this.prisma.organization.upsert({
-      where: { slug: 'aegis-compliance' },
-      update: {},
-      create: {
-        slug: 'aegis-compliance',
-        name: 'Aegis Compliance Control Center'
-      }
-    });
-    return org.id;
+    this.integrations.set(payload.provider, summary);
+    return summary;
   }
 }

@@ -10,21 +10,33 @@ A unified cybersecurity compliance platform targeting NIST 800-53, NIST CSF, CIS
    ```bash
    npm install
    ```
-2. Generate Prisma client and apply schema:
+2. (Optional, WIP) Generate Prisma client and apply schema:
    ```bash
    npx prisma generate --schema apps/api/prisma/schema.prisma
    npx prisma migrate deploy --schema apps/api/prisma/schema.prisma
    npm run db:migrate
    ```
-3. Seed baseline frameworks and sample controls:
+   > ⚠️ The Prisma schema is still evolving for the persistence milestone, so these commands
+   > may fail until the database layer is finalized.
+
+3. (Optional) Seed baseline frameworks and sample controls:
    ```bash
    npx ts-node apps/api/prisma/seed.ts
    ```
+   > Requires a configured database + Prisma client generation.
 4. Launch services during development:
    ```bash
-   npm run serve:api
-   npm run serve:web
+   # Start the in-memory API (returns seed data and captures create/update calls in memory)
+   # Restart the command after making API code changes.
+   npm run dev:api
+
+   # Start the Vite dev server for the React UI
+   npm run dev:web
    ```
+
+   > The legacy Nx-powered command is still available as `npm run dev:nx`, but it requires
+   > a fully configured database and Prisma client. For the UI MVP you can rely on the
+   > in-memory API described above.
 
 ## Project Structure
 
@@ -46,7 +58,9 @@ REPORT_BUCKET=local-reports
 
 ## Scripts
 
-- `npm run dev` – Runs API and web dev servers in parallel.
+- `npm run dev` – Starts the Vite dev server for the React UI (alias for `dev:web`).
+- `npm run dev:api` – Boots the in-memory NestJS API for UI development.
+- `npm run dev:nx` – Original Nx orchestrator (requires database + Prisma setup).
 - `npm run build` – Builds all projects.
 - `npm run lint` – Lints all projects.
 - `npm run test` – Executes Jest suites (currently placeholder).

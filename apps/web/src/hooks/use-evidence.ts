@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../services/api-client';
 
 export type EvidenceItem = {
@@ -11,6 +11,10 @@ export type EvidenceItem = {
   uploadedAt: string;
   reviewDue: string | null;
   status: 'pending' | 'approved' | 'archived';
+  fileType: string;
+  sizeInKb: number;
+  lastReviewed: string | null;
+  nextAction: string | null;
 };
 
 const fallback: EvidenceItem[] = [
@@ -23,7 +27,11 @@ const fallback: EvidenceItem[] = [
     uploadedBy: 'alex@example.com',
     uploadedAt: new Date().toISOString(),
     reviewDue: null,
-    status: 'approved'
+    status: 'approved',
+    fileType: 'pdf',
+    sizeInKb: 18400,
+    lastReviewed: new Date().toISOString(),
+    nextAction: 'Share with auditor'
   }
 ];
 
@@ -38,3 +46,27 @@ export const useEvidence = () =>
     retry: false,
     staleTime: 1000 * 60 * 5
   });
+
+export type CreateEvidenceInput = {
+  name: string;
+  controlIds: string[];
+  frameworkIds: string[];
+  uploadedBy: string;
+  status: EvidenceItem['status'];
+  fileType: string;
+  sizeInKb: number;
+};
+
+export const useCreateEvidence = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: CreateEvidenceInput) => {
+      const response = await apiClient.post<EvidenceItem>('/evidence', payload);
+      return response.data;
+    },
+    onSuccess(created) {
+      queryClient.setQueryData<EvidenceItem[]>(['evidence'], (current = []) => [created, ...current]);
+    }
+  });
+};
