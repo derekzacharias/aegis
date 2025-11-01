@@ -27,27 +27,131 @@ async function main() {
     await prisma.framework.upsert({
       where: { id: framework.id },
       create: {
-        ...framework,
-        organizationId: organization.id
-      },
-      update: {
+        id: framework.id,
+        slug: framework.id,
         name: framework.name,
         version: framework.version,
         description: framework.description,
         family: framework.family,
+        status: 'PUBLISHED',
+        isCustom: false,
+        controlCount: framework.controlCount,
+        metadata: Prisma.JsonNull,
+        organizationId: organization.id
+      },
+      update: {
+        slug: framework.id,
+        name: framework.name,
+        version: framework.version,
+        description: framework.description,
+        family: framework.family,
+        status: 'PUBLISHED',
+        isCustom: false,
         controlCount: framework.controlCount
       }
     });
   }
 
+  const assessmentControlSeeds = [
+    {
+      id: 'assessment-control-ra-5',
+      assessmentId: 'assessment-fedramp-moderate',
+      controlId: 'ra-5',
+      status: 'SATISFIED' as const,
+      dueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 45),
+      evidenceIds: ['evidence-ra5-monthly-scan']
+    },
+    {
+      id: 'assessment-control-ia-2',
+      assessmentId: 'assessment-fedramp-moderate',
+      controlId: 'ia-2',
+      status: 'PARTIAL' as const,
+      dueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 15),
+      evidenceIds: ['evidence-privileged-mfa-policy']
+    },
+    {
+      id: 'assessment-control-cis-4-1',
+      assessmentId: 'assessment-cis-operational',
+      controlId: 'cis-4-1',
+      status: 'SATISFIED' as const,
+      evidenceIds: ['evidence-ra5-monthly-scan']
+    },
+    {
+      id: 'assessment-control-pci-8-2-6',
+      assessmentId: 'assessment-pci-gap',
+      controlId: 'pci-8-2-6',
+      status: 'UNSATISFIED' as const,
+      dueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 60),
+      evidenceIds: ['evidence-privileged-mfa-policy']
+    }
+  ];
+
+  for (const seed of assessmentControlSeeds) {
+    const record = await prisma.assessmentControl.upsert({
+      where: { id: seed.id },
+      create: {
+        id: seed.id,
+        assessmentId: seed.assessmentId,
+        controlId: seed.controlId,
+        status: seed.status,
+        dueDate: seed.dueDate ?? null
+      },
+      update: {
+        status: seed.status,
+        dueDate: seed.dueDate ?? null
+      }
+    });
+
+    await prisma.assessmentEvidence.deleteMany({
+      where: { assessmentControlId: record.id }
+    });
+
+    for (const evidenceId of seed.evidenceIds ?? []) {
+      await prisma.assessmentEvidence.create({
+        data: {
+          assessmentControlId: record.id,
+          evidenceId
+        }
+      });
+    }
+  }
+
   for (const control of controls) {
+    const kind = control.kind === 'enhancement' ? 'ENHANCEMENT' : 'BASE';
     await prisma.control.upsert({
       where: { id: control.id },
-      create: control,
-      update: {
+      create: {
+        id: control.id,
+        frameworkId: control.frameworkId,
+        family: control.family,
         title: control.title,
         description: control.description,
-        priority: control.priority
+        priority: control.priority,
+        kind,
+        parentId: control.parentId ?? null,
+        baselines: control.baselines ?? [],
+        keywords: control.keywords ?? [],
+        references: control.references ?? [],
+        relatedControls: control.relatedControls ?? [],
+        tags: [],
+        metadata: Prisma.JsonNull,
+        isCustom: false
+      },
+      update: {
+        frameworkId: control.frameworkId,
+        family: control.family,
+        kind,
+        parentId: control.parentId ?? null,
+        title: control.title,
+        description: control.description,
+        priority: control.priority,
+        baselines: control.baselines ?? [],
+        keywords: control.keywords ?? [],
+        references: control.references ?? [],
+        relatedControls: control.relatedControls ?? [],
+        tags: [],
+        metadata: Prisma.JsonNull,
+        isCustom: false
       }
     });
   }
@@ -64,7 +168,9 @@ async function main() {
       role: 'ADMIN',
       organizationId: organization.id,
       firstName: 'Aegis',
-      lastName: 'Admin'
+      lastName: 'Admin',
+      jobTitle: 'System Administrator',
+      timezone: 'UTC'
     },
     create: {
       email: adminEmail,
@@ -72,7 +178,9 @@ async function main() {
       role: 'ADMIN',
       firstName: 'Aegis',
       lastName: 'Admin',
-      organizationId: organization.id
+      organizationId: organization.id,
+      jobTitle: 'System Administrator',
+      timezone: 'UTC'
     }
   });
 

@@ -1,15 +1,19 @@
-export type FrameworkFamily = 'NIST' | 'CIS' | 'PCI' | 'Custom';
+export type FrameworkFamily = 'NIST' | 'CIS' | 'PCI' | 'CUSTOM';
+
+export type FrameworkStatus = 'DRAFT' | 'PUBLISHED';
 
 export type ControlPriority = 'P0' | 'P1' | 'P2' | 'P3';
 
-export type BaselineLevel = 'low' | 'moderate' | 'high';
+export type BaselineLevel = 'low' | 'moderate' | 'high' | 'privacy';
+
+export type ControlKind = 'base' | 'enhancement';
 
 export type ControlMappingOrigin = 'SEED' | 'ALGO' | 'MANUAL';
 
 export type ControlDefinition = {
   id: string;
   frameworkId: string;
-  kind: 'base' | 'enhancement';
+  kind: ControlKind;
   parentId?: string;
   family: string;
   title: string;
@@ -19,6 +23,8 @@ export type ControlDefinition = {
   keywords?: string[];
   references?: string[];
   relatedControls?: string[];
+  tags?: string[];
+  metadata?: Record<string, unknown> | null;
 };
 
 export type ControlMappingSeed = {

@@ -1,10 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '../services/api-client';
 import { FrameworkSummary } from './use-frameworks';
+import { EvidenceReuseHint } from './use-crosswalk';
 
 export type ControlPriority = 'P0' | 'P1' | 'P2' | 'P3';
 
-export type BaselineLevel = 'low' | 'moderate' | 'high';
+export type BaselineLevel = 'low' | 'moderate' | 'high' | 'privacy';
+
+export type ControlStatus = 'UNASSESSED' | 'SATISFIED' | 'PARTIAL' | 'UNSATISFIED' | 'NOT_APPLICABLE';
+
+export type AssessmentStatus = 'DRAFT' | 'IN_PROGRESS' | 'COMPLETE';
+
+export type EvidenceStatus = 'PENDING' | 'APPROVED' | 'ARCHIVED' | 'QUARANTINED';
 
 export type ControlDefinition = {
   id: string;
@@ -21,10 +28,59 @@ export type ControlDefinition = {
   relatedControls?: string[];
 };
 
+export type ControlStatusSummary = {
+  status: ControlStatus;
+  count: number;
+};
+
+export type ControlEvidenceSummary = {
+  id: string;
+  name: string;
+  status: EvidenceStatus;
+  uploadedAt: string;
+  uri?: string;
+  tags: string[];
+  frameworks: Array<{
+    id: string;
+    name: string;
+    version?: string;
+  }>;
+};
+
+export type ControlAssessmentSummary = {
+  id: string;
+  name: string;
+  status: AssessmentStatus;
+  controlStatus: ControlStatus;
+  dueDate?: string | null;
+};
+
+export type ControlMappingSummary = {
+  id: string;
+  targetControlId: string;
+  targetControlTitle: string;
+  targetFramework: {
+    id: string;
+    name: string;
+    version: string;
+  };
+  confidence: number;
+  origin: 'SEED' | 'ALGO' | 'MANUAL';
+  evidenceHints: EvidenceReuseHint[];
+};
+
+export type ControlCatalogItem = ControlDefinition & {
+  statusSummary: ControlStatusSummary[];
+  assessments: ControlAssessmentSummary[];
+  evidence: ControlEvidenceSummary[];
+  mappings: ControlMappingSummary[];
+};
+
 export type ControlCatalogFacets = {
   families: Array<{ value: string; count: number }>;
   priorities: Array<{ value: ControlPriority; count: number }>;
   types: Array<{ value: 'base' | 'enhancement'; count: number }>;
+  statuses: Array<{ value: ControlStatus; count: number }>;
 };
 
 export type ControlCatalogResponse = {
@@ -34,7 +90,7 @@ export type ControlCatalogResponse = {
   page: number;
   pageSize: number;
   hasNextPage: boolean;
-  items: ControlDefinition[];
+  items: ControlCatalogItem[];
   facets: ControlCatalogFacets;
 };
 
@@ -43,12 +99,13 @@ export type ControlCatalogParams = {
   family?: string;
   priority?: ControlPriority;
   type?: 'base' | 'enhancement';
+  status?: ControlStatus;
   page?: number;
   pageSize?: number;
 };
 
 export const useControlCatalog = (frameworkId: string | undefined, params: ControlCatalogParams) =>
-  useQuery({
+  useQuery<ControlCatalogResponse, Error>({
     queryKey: ['frameworks', frameworkId, 'controls', params],
     queryFn: async () => {
       if (!frameworkId) {
@@ -61,6 +118,7 @@ export const useControlCatalog = (frameworkId: string | undefined, params: Contr
           family: params.family || undefined,
           priority: params.priority || undefined,
           type: params.type || undefined,
+          status: params.status || undefined,
           page: params.page ?? 1,
           pageSize: params.pageSize ?? 25
         }
@@ -69,7 +127,6 @@ export const useControlCatalog = (frameworkId: string | undefined, params: Contr
       return response.data;
     },
     enabled: Boolean(frameworkId),
-    keepPreviousData: true,
     staleTime: 1000 * 60 * 5,
     retry: false
   });

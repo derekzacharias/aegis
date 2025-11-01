@@ -33,6 +33,8 @@ import { EvidenceStorageService } from './evidence-storage.service';
 import { RequestUploadDto } from './dto/request-upload.dto';
 import { ConfirmUploadDto } from './dto/confirm-upload.dto';
 import { UpdateEvidenceStatusDto } from './dto/update-evidence-status.dto';
+import { UpdateEvidenceMetadataDto } from './dto/update-evidence-metadata.dto';
+import { UpdateEvidenceLinksDto } from './dto/update-evidence-links.dto';
 import { AuthenticatedUser } from '../auth/types/auth.types';
 
 type EvidenceItemWithRelations = Prisma.EvidenceItemGetPayload<{
@@ -44,6 +46,23 @@ type EvidenceItemWithRelations = Prisma.EvidenceItemGetPayload<{
         framework: true;
       };
     };
+    controls: {
+      include: {
+        assessmentControl: {
+          include: {
+            assessment: true;
+            control: true;
+          };
+        };
+      };
+    };
+  };
+}>;
+
+type AssessmentControlWithRelations = Prisma.AssessmentControlGetPayload<{
+  include: {
+    assessment: true;
+    control: true;
   };
 }>;
 
@@ -51,6 +70,7 @@ export interface CreateEvidenceInput {
   name: string;
   controlIds: string[];
   frameworkIds: string[];
+  assessmentControlIds?: string[];
   uploadedBy: string;
   status: 'pending' | 'approved' | 'archived';
   fileType: string;
@@ -87,6 +107,16 @@ export class EvidenceService {
           include: {
             framework: true
           }
+        },
+        controls: {
+          include: {
+            assessmentControl: {
+              include: {
+                assessment: true,
+                control: true
+              }
+            }
+          }
         }
       },
       orderBy: {
@@ -95,6 +125,37 @@ export class EvidenceService {
     });
 
     return items.map((item) => this.toEvidenceRecord(item));
+  }
+
+  async get(organizationId: string, evidenceId: string): Promise<EvidenceRecord> {
+    const item = await this.prisma.evidenceItem.findUnique({
+      where: { id: evidenceId },
+      include: {
+        reviewer: true,
+        uploadedBy: true,
+        frameworks: {
+          include: {
+            framework: true
+          }
+        },
+        controls: {
+          include: {
+            assessmentControl: {
+              include: {
+                assessment: true,
+                control: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!item || item.organizationId !== organizationId) {
+      throw new NotFoundException('Evidence not found');
+    }
+
+    return this.toEvidenceRecord(item);
   }
 
   async createSimple(
@@ -111,18 +172,31 @@ export class EvidenceService {
     }
 
     const uniqueFrameworkIds = Array.from(new Set(payload.frameworkIds));
-    const frameworks = await this.prisma.framework.findMany({
-      where: { id: { in: uniqueFrameworkIds } },
-      select: { id: true }
-    });
-
-    if (frameworks.length !== uniqueFrameworkIds.length) {
-      throw new BadRequestException('One or more frameworks are invalid');
-    }
 
     const normalizedControlIds = payload.controlIds
       .map((id) => id.trim())
       .filter((value) => value.length > 0);
+
+    const assessmentControlIds = Array.from(new Set(payload.assessmentControlIds ?? []));
+
+    const assessmentControls = await this.resolveAssessmentControls(
+      user.organizationId,
+      assessmentControlIds
+    );
+
+    const assessmentControlDisplayIds = assessmentControls.map((control) => control.controlId);
+    const combinedControlIds = Array.from(
+      new Set([...normalizedControlIds, ...assessmentControlDisplayIds])
+    );
+
+    const frameworksFromAssessment = assessmentControls.map(
+      (control) => control.control.frameworkId
+    );
+    const combinedFrameworkIds = Array.from(
+      new Set([...uniqueFrameworkIds, ...frameworksFromAssessment])
+    );
+
+    await this.ensureFrameworksExist(user.organizationId, combinedFrameworkIds);
 
     const extension = this.normalizeExtension(payload.fileType);
     const originalFilename = `${this.normalizeFilenameBase(name)}.${extension}`;
@@ -133,7 +207,10 @@ export class EvidenceService {
     const uploaderLabel = payload.uploadedBy.trim();
 
     const metadata = this.mergeMetadata(null, {
-      controlIds: normalizedControlIds,
+      controlIds: combinedControlIds,
+      manualControlIds: normalizedControlIds,
+      manualFrameworkIds: uniqueFrameworkIds,
+      assessmentControlIds,
       nextAction: 'Pending analyst review',
       origin: 'quick-create',
       uploadedByLabel: uploaderLabel
@@ -164,15 +241,24 @@ export class EvidenceService {
         ingestionStatus: EvidenceIngestionStatus.PENDING,
         nextAction: 'Pending analyst review',
         lastReviewed: null,
-        displayControlIds: normalizedControlIds,
-        displayFrameworkIds: uniqueFrameworkIds,
+        displayControlIds: combinedControlIds,
+        displayFrameworkIds: combinedFrameworkIds,
         frameworks: {
-          create: uniqueFrameworkIds.map((frameworkId) => ({
+          create: combinedFrameworkIds.map((frameworkId) => ({
             framework: {
               connect: { id: frameworkId }
             }
           }))
-        }
+        },
+        controls: assessmentControls.length
+          ? {
+              create: assessmentControls.map((control) => ({
+                assessmentControl: {
+                  connect: { id: control.id }
+                }
+              }))
+            }
+          : undefined
       },
       include: {
         reviewer: true,
@@ -180,6 +266,16 @@ export class EvidenceService {
         frameworks: {
           include: {
             framework: true
+          }
+        },
+        controls: {
+          include: {
+            assessmentControl: {
+              include: {
+                assessment: true,
+                control: true
+              }
+            }
           }
         }
       }
@@ -229,7 +325,10 @@ export class EvidenceService {
         uploadUrl: presigned.uploadUrl,
         uploadAuthToken: authToken,
         status: EvidenceUploadStatus.PENDING,
-        uploadExpiresAt: new Date(presigned.expiresAt)
+        uploadExpiresAt: new Date(presigned.expiresAt),
+        retryCount: 0,
+        failureReason: null,
+        lastErrorAt: null
       }
     });
 
@@ -270,22 +369,74 @@ export class EvidenceService {
       );
     }
 
+    let objectMetadata: import('./evidence-storage.service').UploadedObjectMetadata;
+
+    try {
+      objectMetadata = await this.storage.getObjectMetadata(
+        uploadRequest.storageProvider,
+        uploadRequest.storageKey
+      );
+    } catch (error) {
+      await this.markUploadFailed(uploadRequest.id, 'Uploaded object missing or inaccessible');
+      this.logger.error('Failed to verify uploaded evidence object', error as Error);
+      throw new BadRequestException('Evidence upload could not be verified. Please retry the upload.');
+    }
+
+    const resolvedFileSize = objectMetadata.size ?? uploadRequest.sizeInBytes;
+
+    if (!Number.isFinite(resolvedFileSize) || resolvedFileSize <= 0) {
+      await this.markUploadFailed(uploadRequest.id, 'Uploaded evidence file has zero length');
+      throw new BadRequestException('Uploaded evidence file is empty. Please upload again.');
+    }
+
+    const resolvedChecksum = objectMetadata.checksum ?? uploadRequest.checksum ?? null;
+
+    if (
+      uploadRequest.checksum &&
+      resolvedChecksum &&
+      uploadRequest.checksum !== resolvedChecksum
+    ) {
+      await this.markUploadFailed(uploadRequest.id, 'Checksum mismatch during confirmation');
+      throw new BadRequestException('Uploaded evidence checksum mismatch. Please upload again.');
+    }
+
+    const resolvedContentType = objectMetadata.contentType ?? uploadRequest.contentType;
+
     const retentionPeriodDays = payload.retentionPeriodDays ?? null;
     const retentionExpiresAt = this.computeRetentionExpiry(retentionPeriodDays);
     const controlIds = (payload.controlIds ?? []).map((id) => id.trim()).filter(Boolean);
-    const frameworkIds = payload.frameworkIds ?? [];
+    const frameworkIds = Array.from(new Set(payload.frameworkIds ?? []));
+    const assessmentControlIds = Array.from(new Set(payload.assessmentControlIds ?? []));
+    const assessmentControls = await this.resolveAssessmentControls(
+      user.organizationId,
+      assessmentControlIds
+    );
+    const assessmentControlDisplayIds = assessmentControls.map((control) => control.controlId);
+    const combinedControlIds = Array.from(
+      new Set([...controlIds, ...assessmentControlDisplayIds])
+    );
+    const frameworksFromAssessment = assessmentControls.map(
+      (control) => control.control.frameworkId
+    );
+    const combinedFrameworkIds = Array.from(
+      new Set([...frameworkIds, ...frameworksFromAssessment])
+    );
+    await this.ensureFrameworksExist(user.organizationId, combinedFrameworkIds);
     const fileType = this.normalizeExtension(path.extname(uploadRequest.fileName).replace('.', ''));
-    const sizeInKb = Math.max(1, Math.round(uploadRequest.sizeInBytes / 1024));
+    const sizeInKb = Math.max(1, Math.round(resolvedFileSize / 1024));
 
-    const metadata: Prisma.JsonObject = {
-      controlIds,
+    const metadata = this.mergeMetadata(null, {
+      controlIds: combinedControlIds,
+      manualControlIds: controlIds,
+      assessmentControlIds,
+      manualFrameworkIds: frameworkIds,
       categories: payload.categories ?? [],
       tags: payload.tags ?? [],
       notes: payload.notes ?? null,
       source: payload.source ?? 'manual',
       nextAction: payload.nextAction ?? 'Pending analyst review',
       uploadedByLabel: user.email
-    };
+    }) as Prisma.JsonObject;
 
     const storageUri = this.resolveStorageUri(uploadRequest.storageProvider, uploadRequest.storageKey);
 
@@ -299,9 +450,9 @@ export class EvidenceService {
         storageKey: uploadRequest.storageKey,
         storageProvider: uploadRequest.storageProvider,
         originalFilename: uploadRequest.fileName,
-        contentType: uploadRequest.contentType,
-        fileSize: uploadRequest.sizeInBytes,
-        checksum: uploadRequest.checksum,
+        contentType: resolvedContentType,
+        fileSize: resolvedFileSize,
+        checksum: resolvedChecksum,
         fileType,
         sizeInKb,
         metadata,
@@ -316,16 +467,25 @@ export class EvidenceService {
         ingestionStatus: EvidenceIngestionStatus.PENDING,
         nextAction: payload.nextAction ?? 'Pending analyst review',
         lastReviewed: null,
-        displayControlIds: controlIds,
-        displayFrameworkIds: frameworkIds,
+        displayControlIds: combinedControlIds,
+        displayFrameworkIds: combinedFrameworkIds,
         uploadRequestId: uploadRequest.id,
         frameworks: {
-          create: frameworkIds.map((frameworkId) => ({
+          create: combinedFrameworkIds.map((frameworkId) => ({
             framework: {
               connect: { id: frameworkId }
             }
           }))
-        }
+        },
+        controls: assessmentControls.length
+          ? {
+              create: assessmentControls.map((control) => ({
+                assessmentControl: {
+                  connect: { id: control.id }
+                }
+              }))
+            }
+          : undefined
       },
       include: {
         reviewer: true,
@@ -333,6 +493,16 @@ export class EvidenceService {
         frameworks: {
           include: {
             framework: true
+          }
+        },
+        controls: {
+          include: {
+            assessmentControl: {
+              include: {
+                assessment: true,
+                control: true
+              }
+            }
           }
         }
       }
@@ -342,7 +512,13 @@ export class EvidenceService {
       where: { id: uploadRequest.id },
       data: {
         status: EvidenceUploadStatus.CONFIRMED,
-        confirmedAt: new Date()
+        confirmedAt: new Date(),
+        uploadedAt: uploadRequest.uploadedAt ?? new Date(),
+        sizeInBytes: resolvedFileSize,
+        contentType: resolvedContentType,
+        checksum: resolvedChecksum,
+        failureReason: null,
+        lastErrorAt: null
       }
     });
 
@@ -368,6 +544,319 @@ export class EvidenceService {
     return this.toEvidenceRecord(evidence);
   }
 
+  async updateMetadata(
+    user: AuthenticatedUser,
+    evidenceId: string,
+    payload: UpdateEvidenceMetadataDto
+  ): Promise<EvidenceRecord> {
+    const evidence = await this.prisma.evidenceItem.findUnique({
+      where: { id: evidenceId },
+      include: {
+        reviewer: true,
+        uploadedBy: true,
+        frameworks: {
+          include: {
+            framework: true
+          }
+        },
+        controls: {
+          include: {
+            assessmentControl: {
+              include: {
+                assessment: true,
+                control: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!evidence || evidence.organizationId !== user.organizationId) {
+      throw new NotFoundException('Evidence not found');
+    }
+
+    const updateData: Prisma.EvidenceItemUpdateInput = {};
+    const metadataUpdates: Record<string, unknown> = {};
+    const currentMetadata = this.normalizeMetadata(evidence.metadata);
+
+    if (payload.name !== undefined) {
+      const trimmedName = payload.name.trim();
+      if (!trimmedName) {
+        throw new BadRequestException('Evidence name cannot be empty');
+      }
+      updateData.name = trimmedName;
+    }
+
+    const attachmentControlIds = evidence.controls.map(
+      (link) => link.assessmentControl.controlId
+    );
+    const attachmentFrameworkIds = evidence.controls.map(
+      (link) => link.assessmentControl.control.frameworkId
+    );
+
+    if (payload.controlIds !== undefined) {
+      const manualControlIds = Array.from(
+        new Set(
+          payload.controlIds
+            .map((value) => value.trim())
+            .filter((value) => value.length > 0)
+        )
+      );
+
+      metadataUpdates.manualControlIds = manualControlIds;
+      const combinedControlIds = Array.from(
+        new Set([...manualControlIds, ...attachmentControlIds])
+      );
+      metadataUpdates.controlIds = combinedControlIds;
+      updateData.displayControlIds = combinedControlIds;
+    }
+
+    if (payload.frameworkIds !== undefined) {
+      const manualFrameworkIds = Array.from(
+        new Set(
+          payload.frameworkIds
+            .map((value) => value.trim())
+            .filter((value) => value.length > 0)
+        )
+      );
+
+      metadataUpdates.manualFrameworkIds = manualFrameworkIds;
+      const combinedFrameworkIds = Array.from(
+        new Set([...manualFrameworkIds, ...attachmentFrameworkIds])
+      );
+      await this.ensureFrameworksExist(user.organizationId, combinedFrameworkIds);
+      updateData.displayFrameworkIds = combinedFrameworkIds;
+      updateData.frameworks = {
+        deleteMany: {},
+        create: combinedFrameworkIds.map((frameworkId) => ({
+          framework: {
+            connect: { id: frameworkId }
+          }
+        }))
+      };
+    }
+
+    if (payload.categories !== undefined) {
+      const categories = payload.categories
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0);
+      metadataUpdates.categories = categories;
+    }
+
+    if (payload.tags !== undefined) {
+      const tags = payload.tags
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0);
+      metadataUpdates.tags = tags;
+    }
+
+    if (payload.notes !== undefined) {
+      const notes = payload.notes.trim();
+      metadataUpdates.notes = notes.length > 0 ? notes : null;
+    }
+
+    if (payload.nextAction !== undefined) {
+      const nextAction = payload.nextAction.trim();
+      const normalized = nextAction.length > 0 ? nextAction : null;
+      metadataUpdates.nextAction = normalized;
+      updateData.nextAction = normalized;
+    }
+
+    if (payload.source !== undefined) {
+      const source = payload.source.trim();
+      metadataUpdates.source = source.length > 0 ? source : null;
+    }
+
+    if (Object.keys(metadataUpdates).length > 0) {
+      updateData.metadata = this.mergeMetadata(evidence.metadata, metadataUpdates) as Prisma.JsonObject;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return this.toEvidenceRecord(evidence);
+    }
+
+    const updated = await this.prisma.evidenceItem.update({
+      where: { id: evidence.id },
+      data: updateData,
+      include: {
+        reviewer: true,
+        uploadedBy: true,
+        frameworks: {
+          include: {
+            framework: true
+          }
+        },
+        controls: {
+          include: {
+            assessmentControl: {
+              include: {
+                assessment: true,
+                control: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    return this.toEvidenceRecord(updated);
+  }
+
+  async updateAssessmentLinks(
+    user: AuthenticatedUser,
+    evidenceId: string,
+    payload: UpdateEvidenceLinksDto
+  ): Promise<EvidenceRecord> {
+    const evidence = await this.prisma.evidenceItem.findUnique({
+      where: { id: evidenceId },
+      include: {
+        reviewer: true,
+        uploadedBy: true,
+        frameworks: {
+          include: {
+            framework: true
+          }
+        },
+        controls: {
+          include: {
+            assessmentControl: {
+              include: {
+                assessment: true,
+                control: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!evidence || evidence.organizationId !== user.organizationId) {
+      throw new NotFoundException('Evidence not found');
+    }
+
+    const desiredControls = await this.resolveAssessmentControls(
+      user.organizationId,
+      payload.assessmentControlIds ?? []
+    );
+
+    const desiredIds = desiredControls.map((control) => control.id);
+    const currentMetadata = this.normalizeMetadata(evidence.metadata);
+
+    const manualControlIds = Array.isArray(currentMetadata.manualControlIds)
+      ? (currentMetadata.manualControlIds as string[])
+      : [];
+    const manualFrameworkIds = Array.isArray(currentMetadata.manualFrameworkIds)
+      ? (currentMetadata.manualFrameworkIds as string[])
+      : [];
+
+    const combinedControlIds = Array.from(
+      new Set([...manualControlIds, ...desiredControls.map((control) => control.controlId)])
+    );
+
+    const combinedFrameworkIds = Array.from(
+      new Set([
+        ...manualFrameworkIds,
+        ...desiredControls.map((control) => control.control.frameworkId)
+      ])
+    );
+
+    await this.ensureFrameworksExist(user.organizationId, combinedFrameworkIds);
+
+    const updatedMetadata = this.mergeMetadata(evidence.metadata, {
+      controlIds: combinedControlIds,
+      manualControlIds,
+      manualFrameworkIds,
+      assessmentControlIds: desiredIds
+    }) as Prisma.JsonObject;
+
+    await this.prisma.$transaction(async (tx) => {
+      if (desiredIds.length) {
+        await tx.assessmentEvidence.deleteMany({
+          where: {
+            evidenceId: evidence.id,
+            assessmentControlId: {
+              notIn: desiredIds
+            }
+          }
+        });
+
+        await tx.assessmentEvidence.createMany({
+          data: desiredIds.map((id) => ({
+            evidenceId: evidence.id,
+            assessmentControlId: id
+          })),
+          skipDuplicates: true
+        });
+      } else {
+        await tx.assessmentEvidence.deleteMany({
+          where: { evidenceId: evidence.id }
+        });
+      }
+
+      await tx.evidenceItem.update({
+        where: { id: evidence.id },
+        data: {
+          displayControlIds: combinedControlIds,
+          displayFrameworkIds: combinedFrameworkIds,
+          metadata: updatedMetadata,
+          frameworks: {
+            deleteMany: {},
+            create: combinedFrameworkIds.map((frameworkId) => ({
+              framework: {
+                connect: { id: frameworkId }
+              }
+            }))
+          }
+        }
+      });
+    });
+
+    const refreshed = await this.prisma.evidenceItem.findUnique({
+      where: { id: evidence.id },
+      include: {
+        reviewer: true,
+        uploadedBy: true,
+        frameworks: {
+          include: {
+            framework: true
+          }
+        },
+        controls: {
+          include: {
+            assessmentControl: {
+              include: {
+                assessment: true,
+                control: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!refreshed) {
+      throw new NotFoundException('Evidence not found');
+    }
+
+    return this.toEvidenceRecord(refreshed);
+  }
+
+  async delete(user: AuthenticatedUser, evidenceId: string): Promise<void> {
+    const evidence = await this.prisma.evidenceItem.findUnique({
+      where: { id: evidenceId },
+      select: { organizationId: true }
+    });
+
+    if (!evidence || evidence.organizationId !== user.organizationId) {
+      throw new NotFoundException('Evidence not found');
+    }
+
+    await this.prisma.evidenceItem.delete({
+      where: { id: evidenceId }
+    });
+  }
+
   async updateStatus(
     user: AuthenticatedUser,
     evidenceId: string,
@@ -381,6 +870,16 @@ export class EvidenceService {
         frameworks: {
           include: {
             framework: true
+          }
+        },
+        controls: {
+          include: {
+            assessmentControl: {
+              include: {
+                assessment: true,
+                control: true
+              }
+            }
           }
         }
       }
@@ -427,6 +926,16 @@ export class EvidenceService {
         frameworks: {
           include: {
             framework: true
+          }
+        },
+        controls: {
+          include: {
+            assessmentControl: {
+              include: {
+                assessment: true,
+                control: true
+              }
+            }
           }
         }
       }
@@ -481,7 +990,17 @@ export class EvidenceService {
     try {
       await pipeline(request, writeStream);
     } catch (error) {
+      await this.markUploadFailed(uploadRequest.id, 'Failed to persist local evidence upload');
       this.logger.error('Failed to persist local evidence upload', error as Error);
+      throw new InternalServerErrorException('Failed to persist evidence upload');
+    }
+
+    let stats: import('fs').Stats;
+    try {
+      stats = await fs.stat(destination);
+    } catch (error) {
+      await this.markUploadFailed(uploadRequest.id, 'Unable to inspect uploaded file');
+      this.logger.error('Failed to inspect uploaded evidence file', error as Error);
       throw new InternalServerErrorException('Failed to persist evidence upload');
     }
 
@@ -490,7 +1009,10 @@ export class EvidenceService {
       data: {
         status: EvidenceUploadStatus.UPLOADED,
         uploadedAt: new Date(),
-        uploadUrl: `file://${destination}`
+        uploadUrl: `file://${destination}`,
+        sizeInBytes: stats.size,
+        failureReason: null,
+        lastErrorAt: null
       }
     });
   }
@@ -507,6 +1029,23 @@ export class EvidenceService {
       id: framework.id,
       name: framework.name
     }));
+
+    const assessmentLinks = item.controls
+      .filter((link) => link.assessmentControl)
+      .map((link) => {
+        const assessment = link.assessmentControl.assessment;
+        const control = link.assessmentControl.control;
+
+        return {
+          assessmentControlId: link.assessmentControlId,
+          assessmentId: assessment.id,
+          assessmentName: assessment.name,
+          assessmentStatus: assessment.status,
+          controlId: control.id,
+          controlTitle: control.title,
+          controlFamily: control.family
+        };
+      });
 
     const controlIds = item.displayControlIds.length > 0
       ? item.displayControlIds
@@ -560,6 +1099,7 @@ export class EvidenceService {
       checksum: item.checksum ?? null,
       frameworks,
       controlIds,
+      assessmentLinks,
       metadata,
       reviewer,
       uploadedBy,
@@ -648,14 +1188,12 @@ export class EvidenceService {
   }
 
   private resolveLocalPath(storageKey: string): string {
-    const baseDir = this.storage.getLocalDirectory();
-    const candidate = path.resolve(baseDir, storageKey);
-
-    if (path.relative(baseDir, candidate).startsWith('..')) {
+    try {
+      return this.storage.resolveLocalPath(storageKey);
+    } catch (error) {
+      this.logger.warn(`Rejected invalid storage key ${storageKey}: ${(error as Error).message}`);
       throw new ForbiddenException('Invalid storage key');
     }
-
-    return candidate;
   }
 
   private computeRetentionExpiry(periodDays: number | null): Date | null {
@@ -676,12 +1214,105 @@ export class EvidenceService {
       throw new BadRequestException('Upload request has already been confirmed');
     }
 
+    if (uploadRequest.status === EvidenceUploadStatus.FAILED) {
+      throw new BadRequestException('Upload request failed verification. Request a new upload.');
+    }
+
     if (uploadRequest.uploadExpiresAt && uploadRequest.uploadExpiresAt.getTime() < Date.now()) {
       await this.prisma.evidenceUploadRequest.update({
         where: { id: uploadRequest.id },
         data: { status: EvidenceUploadStatus.EXPIRED }
       });
       throw new BadRequestException('Upload request has expired');
+    }
+  }
+
+  private async resolveAssessmentControls(
+    organizationId: string,
+    identifiers: string[]
+  ): Promise<AssessmentControlWithRelations[]> {
+    if (!identifiers.length) {
+      return [];
+    }
+
+    const uniqueIds = Array.from(
+      new Set(
+        identifiers
+          .map((identifier) => identifier.trim())
+          .filter((identifier) => identifier.length > 0)
+      )
+    );
+
+    if (!uniqueIds.length) {
+      return [];
+    }
+
+    const controls = await this.prisma.assessmentControl.findMany({
+      where: {
+        id: {
+          in: uniqueIds
+        },
+        assessment: {
+          organizationId
+        }
+      },
+      include: {
+        assessment: true,
+        control: true
+      }
+    });
+
+    if (controls.length !== uniqueIds.length) {
+      throw new BadRequestException('One or more assessment controls are invalid');
+    }
+
+    return controls;
+  }
+
+  private async ensureFrameworksExist(
+    organizationId: string,
+    frameworkIds: string[]
+  ): Promise<void> {
+    if (!frameworkIds.length) {
+      return;
+    }
+
+    const uniqueIds = Array.from(new Set(frameworkIds));
+
+    const frameworks = await this.prisma.framework.findMany({
+      where: {
+        id: {
+          in: uniqueIds
+        },
+        organizationId
+      },
+      select: {
+        id: true
+      }
+    });
+
+    if (frameworks.length !== uniqueIds.length) {
+      throw new BadRequestException('One or more frameworks are invalid');
+    }
+  }
+
+  private async markUploadFailed(uploadRequestId: string, reason: string): Promise<void> {
+    try {
+      await this.prisma.evidenceUploadRequest.update({
+        where: { id: uploadRequestId },
+        data: {
+          status: EvidenceUploadStatus.FAILED,
+          failureReason: reason.substring(0, 512),
+          lastErrorAt: new Date(),
+          retryCount: {
+            increment: 1
+          }
+        }
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Unable to record upload failure for ${uploadRequestId}: ${(error as Error).message}`
+      );
     }
   }
 

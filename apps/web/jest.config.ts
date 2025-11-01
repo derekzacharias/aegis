@@ -7,7 +7,7 @@ export default {
       'ts-jest',
       {
         tsconfig: '<rootDir>/tsconfig.spec.json',
-        babelConfig: true
+        babelConfig: false
       }
     ]
   },

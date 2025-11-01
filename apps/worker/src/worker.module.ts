@@ -13,6 +13,7 @@ import { ScheduleRunner } from './scheduler/schedule-runner';
 import { EvidenceReviewReminderHandler } from './scheduler/handlers/evidence-review.handler';
 import { RecurringAssessmentHandler } from './scheduler/handlers/recurring-assessment.handler';
 import { AgentHealthCheckHandler } from './scheduler/handlers/agent-health-check.handler';
+import { PrismaService } from './prisma.service';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { AgentHealthCheckHandler } from './scheduler/handlers/agent-health-check
     })
   ],
   providers: [
+    PrismaService,
     ReportingProcessor,
     EvidenceProcessor,
     JiraIntegrationProvider,

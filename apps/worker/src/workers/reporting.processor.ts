@@ -4,8 +4,7 @@ import { promises as fs } from 'fs';
 import { pathToFileURL } from 'url';
 import path from 'path';
 import {
-  assessmentStore,
-  AssessmentStoreType,
+  AssessmentSummary,
   JobQueue,
   jobQueue,
   JobRecord,
@@ -15,8 +14,10 @@ import {
   ReportJobResult,
   ReportStoreType
 } from '@compliance/shared';
+import { AssessmentStatus as PrismaAssessmentStatus } from '@prisma/client';
 import puppeteer, { Browser } from 'puppeteer';
 import { renderAssessmentReport } from '../reporting/report-template';
+import { PrismaService } from '../prisma.service';
 
 const REPORT_JOB_NAME = 'report.generate';
 const OUTPUT_ROOT = path.resolve(process.cwd(), 'tmp/reports');
@@ -43,9 +44,9 @@ export class ReportingProcessor implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
     private readonly queue: JobQueue = jobQueue,
     private readonly reports: ReportStoreType = reportStore,
-    private readonly assessments: AssessmentStoreType = assessmentStore,
     browserFactory?: BrowserFactory
   ) {
     this.browserFactory = browserFactory ?? new PuppeteerBrowserFactory();
@@ -64,12 +65,7 @@ export class ReportingProcessor implements OnModuleInit, OnModuleDestroy {
 
   private async process(job: JobRecord<ReportJobPayload>): Promise<ReportJobResult> {
     const { assessmentId, formats, requestedBy } = job.payload;
-    const assessment = this.assessments.get(assessmentId);
-
-    if (!assessment) {
-      this.logger.error(`Assessment ${assessmentId} not found for job ${job.id}`);
-      throw new Error(`Assessment ${assessmentId} not found`);
-    }
+    const assessment = await this.fetchAssessmentSummary(assessmentId);
 
     this.logger.log(`Rendering report ${job.id} for assessment ${assessmentId}`);
     const generatedAt = new Date().toISOString();
@@ -137,4 +133,41 @@ export class ReportingProcessor implements OnModuleInit, OnModuleDestroy {
       }
     };
   }
+
+  private async fetchAssessmentSummary(assessmentId: string): Promise<AssessmentSummary> {
+    const record = await this.prisma.assessmentProject.findUnique({
+      where: { id: assessmentId },
+      include: {
+        frameworks: true,
+        owner: true
+      }
+    });
+
+    if (!record) {
+      this.logger.error(`Assessment ${assessmentId} not found`);
+      throw new Error(`Assessment ${assessmentId} not found`);
+    }
+
+    return {
+      id: record.id,
+      name: record.name,
+      frameworkIds: record.frameworks.map((framework) => framework.frameworkId),
+      status: statusFromPrisma[record.status],
+      owner: record.owner?.email ?? record.ownerEmail ?? 'unassigned',
+      createdAt: record.createdAt.toISOString(),
+      updatedAt: record.updatedAt.toISOString(),
+      progress: {
+        satisfied: record.progressSatisfied,
+        partial: record.progressPartial,
+        unsatisfied: record.progressUnsatisfied,
+        total: record.progressTotal
+      }
+    };
+  }
 }
+
+const statusFromPrisma: Record<PrismaAssessmentStatus, AssessmentSummary['status']> = {
+  [PrismaAssessmentStatus.DRAFT]: 'draft',
+  [PrismaAssessmentStatus.IN_PROGRESS]: 'in-progress',
+  [PrismaAssessmentStatus.COMPLETE]: 'complete'
+};

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EvidenceStorageProvider } from '@prisma/client';
 import { randomBytes } from 'crypto';
+import { promises as fs } from 'fs';
 import path from 'path';
 
 type StorageMode = 's3' | 'local';
@@ -9,12 +10,19 @@ type StorageMode = 's3' | 'local';
 type AwsModules = {
   S3Client: new (...args: unknown[]) => unknown;
   PutObjectCommand: new (...args: unknown[]) => unknown;
+  HeadObjectCommand: new (...args: unknown[]) => unknown;
   getSignedUrl: (
     client: unknown,
     command: unknown,
     options: { expiresIn: number }
   ) => Promise<string>;
 };
+
+export interface UploadedObjectMetadata {
+  size: number;
+  contentType?: string;
+  checksum?: string;
+}
 
 export interface PresignedUpload {
   uploadUrl: string;
@@ -71,6 +79,16 @@ export class EvidenceStorageService {
 
   getLocalDirectory(): string {
     return this.localDir;
+  }
+
+  resolveLocalPath(storageKey: string): string {
+    const candidate = path.resolve(this.localDir, storageKey);
+
+    if (!candidate.startsWith(this.localDir)) {
+      throw new Error('Invalid storage key');
+    }
+
+    return candidate;
   }
 
   getBucket(): string {
@@ -132,6 +150,44 @@ export class EvidenceStorageService {
     };
   }
 
+  async getObjectMetadata(
+    provider: EvidenceStorageProvider,
+    storageKey: string
+  ): Promise<UploadedObjectMetadata> {
+    if (provider === EvidenceStorageProvider.LOCAL) {
+      const filePath = this.resolveLocalPath(storageKey);
+      const stats = await fs.stat(filePath);
+
+      return {
+        size: stats.size
+      };
+    }
+
+    const { client, modules } = await this.getS3Client();
+    const command = new modules.HeadObjectCommand({
+      Bucket: this.bucket,
+      Key: storageKey
+    });
+
+    const response = (await (client as { send: (command: unknown) => Promise<Record<string, unknown>> }).send(
+      command
+    )) as Record<string, unknown>;
+
+    const size = typeof response['ContentLength'] === 'number' ? response['ContentLength'] : undefined;
+    if (typeof size !== 'number') {
+      throw new Error('Object size metadata missing');
+    }
+
+    const contentType = typeof response['ContentType'] === 'string' ? (response['ContentType'] as string) : undefined;
+    const checksumRaw = typeof response['ChecksumSHA256'] === 'string' ? (response['ChecksumSHA256'] as string) : undefined;
+
+    return {
+      size,
+      contentType,
+      checksum: checksumRaw ? `sha256:${checksumRaw}` : undefined
+    };
+  }
+
   private normalizeEmpty(value: string | undefined): string | undefined {
     if (!value) {
       return undefined;
@@ -146,13 +202,14 @@ export class EvidenceStorageService {
   }> {
     if (!this.awsModulesLoaded) {
       try {
-        const [{ S3Client, PutObjectCommand }, { getSignedUrl }] = await Promise.all([
+        const [{ S3Client, PutObjectCommand, HeadObjectCommand }, { getSignedUrl }] = await Promise.all([
           import('@aws-sdk/client-s3'),
           import('@aws-sdk/s3-request-presigner')
         ]);
         this.awsModules = {
           S3Client: S3Client as AwsModules['S3Client'],
           PutObjectCommand: PutObjectCommand as AwsModules['PutObjectCommand'],
+          HeadObjectCommand: HeadObjectCommand as AwsModules['HeadObjectCommand'],
           getSignedUrl: getSignedUrl as AwsModules['getSignedUrl']
         };
         this.awsModulesLoaded = true;

@@ -58,6 +58,5 @@ export const useAssessmentEvidenceReuse = (
     },
     enabled: Boolean(assessmentId) && enabled,
     staleTime: 1000 * 60,
-    retry: false,
-    keepPreviousData: true
+    retry: false
   });

@@ -159,8 +159,16 @@ export class AuthService {
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
+      jobTitle: user.jobTitle,
+      phoneNumber: user.phoneNumber,
+      timezone: user.timezone,
+      avatarUrl: user.avatarUrl,
+      bio: user.bio,
       role: user.role,
-      organizationId: user.organizationId
+      organizationId: user.organizationId,
+      lastLoginAt: user.lastLoginAt ? user.lastLoginAt.toISOString() : null,
+      createdAt: user.createdAt.toISOString(),
+      updatedAt: user.updatedAt.toISOString()
     };
   }
 

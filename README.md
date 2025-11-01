@@ -61,6 +61,13 @@ The mid-term policy management backlog item is now scaffolded end-to-end:
 - **Testing** – Jest unit tests cover critical approval transitions (submit, approve, reject gating).
 - **Documentation** – see `docs/policies.md` for workflow diagrams, role expectations, and API usage.
 
+### Custom Framework Builder
+
+- **Wizard-driven workflow** – Analysts and admins can create drafts, import controls from CSV or JSON, enrich metadata, and publish bespoke catalogs. Drafts persist metadata and are resumable.
+- **API endpoints** – `/frameworks` handles create/update/draft storage, `/:frameworkId/controls` persists control definitions atomically, and `/:frameworkId/publish` promotes drafts. All operations are scoped by organization.
+- **Control metadata** – Tags, baselines, keywords, and manual mappings are stored via Prisma and surfaced instantly to catalogs, crosswalks, and assessments.
+- **Documentation** – see `docs/custom-frameworks.md` for import schemas, governance notes, and testing guidance.
+
 ## Configuration
 
 Create an `.env` in the repository root (or `apps/api/.env`) with:
@@ -108,6 +115,22 @@ VITE_POLICY_ACTOR_EMAIL=alex.mercier@example.com
 - **Frontend** – The React app now presents a login screen, stores sessions in `localStorage`,
   handles automatic refresh, and surfaces authorization errors at the top of the shell.
 
+### User Profile Management
+
+- **API endpoints** – `/api/users/me` (fetch), `/api/users/me` `PATCH` (update contact details),
+  `/api/users/me/password` (change password), `/api/users/me/audits` (recent change history),
+  and `/api/users/:id/role` (admin-only role updates). Each write is covered by class-validator
+  DTOs and recorded in `UserProfileAudit` for traceability.
+- **Stored fields** – Profiles now capture `phoneNumber`, `jobTitle`, `timezone`, `avatarUrl`,
+  and `bio` in addition to first/last name. Avatar values are stored as HTTPS URLs so you can
+  point to your preferred asset store; no binary upload pipeline is required.
+- **Frontend experience** – Settings → Profile presents editable Chakra forms with optimistic
+  updates, audit history, and password-change workflows. Administrators see a role selector that
+  calls the admin endpoint while other roles receive a read-only summary.
+- **Password changes** – Successful updates invalidate refresh tokens server-side; the current
+  session continues until its access token expires, but subsequent refreshes require the new
+  credentials. The password form enforces the same complexity rules as registration.
+
 ### Evidence Upload Pipeline
 
 - The evidence module persists uploads using Prisma models (`EvidenceItem`, `EvidenceUploadRequest`,
@@ -121,6 +144,8 @@ VITE_POLICY_ACTOR_EMAIL=alex.mercier@example.com
 - After uploading the binary, clients call `POST /api/evidence/uploads/:id/confirm` to persist
   metadata (frameworks, controls, retention policy, reviewer). An ingestion job is dispatched
   to the worker for virus scanning / enrichment (currently a stub that logs activity).
+- Detailed environment settings and manual QA scenarios are captured in
+  [`docs/evidence.md`](docs/evidence.md).
 
 ## Scripts
 
@@ -134,8 +159,18 @@ VITE_POLICY_ACTOR_EMAIL=alex.mercier@example.com
 - `npx nx test api` / `npx nx test web` – Run the backend/frontend Jest suites (auth + guard
   smoke tests included).
 
+## Manual QA Checklist
+
+Use the seeded admin account (or a freshly registered user) to verify the profile experience end-to-end:
+
+1. Sign in, open **Settings → Profile**, and update contact fields (name, job title, timezone, avatar URL, bio). Confirm the toast notification and refreshed metadata.
+2. Enter an invalid phone number (e.g., `abc123`) and ensure the form surfaces validation feedback without saving.
+3. Change the password with an incorrect current value (expect an error) and then with a valid new password (expect success and the form to reset).
+4. Toggle **Show audit history** and confirm that recent edits appear with actor, field, and timestamp details.
+5. For an admin user, adjust the role selector and verify the change persists after a reload; non-admin users should see a read-only role summary.
+
 ## Deployment Modes
 
 The platform targets both multi-tenant SaaS (AWS GovCloud / Azure Gov) and self-hosted deployments. Helm charts and Terraform modules are planned to live under `deploy/` (to be added).
 
-See `docs/architecture.md` and `docs/backlog.md` for implementation details and roadmap.
+See `docs/architecture.md`, `docs/control-catalog.md`, and `docs/backlog.md` for implementation details and roadmap.

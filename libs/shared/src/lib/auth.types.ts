@@ -5,8 +5,16 @@ export interface AuthUser {
   email: string;
   firstName?: string | null;
   lastName?: string | null;
+  jobTitle?: string | null;
+  phoneNumber?: string | null;
+  timezone?: string | null;
+  avatarUrl?: string | null;
+  bio?: string | null;
   role: UserRole;
   organizationId: string;
+  lastLoginAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface AuthTokens {

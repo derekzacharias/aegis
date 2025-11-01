@@ -1,4 +1,5 @@
 import { Transform } from 'class-transformer';
+import { ControlStatus } from '@prisma/client';
 import { IsIn, IsInt, IsOptional, IsPositive, IsString, Max, Min } from 'class-validator';
 import { ControlPriority } from '../framework.types';
 
@@ -18,6 +19,10 @@ export class GetFrameworkControlsDto {
   @IsOptional()
   @IsIn(['base', 'enhancement'])
   type?: 'base' | 'enhancement';
+
+  @IsOptional()
+  @IsIn(['UNASSESSED', 'SATISFIED', 'PARTIAL', 'UNSATISFIED', 'NOT_APPLICABLE'])
+  status?: ControlStatus;
 
   @IsOptional()
   @Transform(({ value }) => parseInt(value, 10))

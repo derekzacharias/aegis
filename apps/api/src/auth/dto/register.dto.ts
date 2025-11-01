@@ -9,7 +9,7 @@ import {
   MinLength
 } from 'class-validator';
 
-const PASSWORD_POLICY =
+export const PASSWORD_COMPLEXITY_REGEX =
   /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).{12,}$/;
 
 export class RegisterDto {
@@ -19,7 +19,7 @@ export class RegisterDto {
   @IsString()
   @MinLength(12)
   @MaxLength(128)
-  @Matches(PASSWORD_POLICY, {
+  @Matches(PASSWORD_COMPLEXITY_REGEX, {
     message:
       'Password must be at least 12 characters long and include upper, lower, number, and special characters'
   })

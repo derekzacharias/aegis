@@ -1,4 +1,9 @@
-import { EvidenceRecord, EvidenceStatus, EvidenceUploadRequestView } from '@compliance/shared';
+import {
+  EvidenceIngestionStatus,
+  EvidenceRecord,
+  EvidenceStatus,
+  EvidenceUploadRequestView
+} from '@compliance/shared';
 import axios from 'axios';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../services/api-client';
@@ -20,6 +25,7 @@ export type EvidenceUploadPayload = {
   name: string;
   frameworkIds: string[];
   controlIds?: string[];
+  assessmentControlIds?: string[];
   retentionPeriodDays?: number;
   retentionReason?: string;
   reviewDue?: string;
@@ -30,6 +36,7 @@ export type EvidenceUploadPayload = {
   nextAction?: string;
   statusNote?: string;
   initialStatus?: EvidenceStatus;
+  source?: string;
   onProgress?: (percent: number) => void;
 };
 
@@ -93,6 +100,7 @@ export const useEvidenceUpload = () => {
         name: payload.name,
         frameworkIds: payload.frameworkIds,
         controlIds: payload.controlIds ?? [],
+        assessmentControlIds: payload.assessmentControlIds ?? [],
         retentionPeriodDays: payload.retentionPeriodDays,
         retentionReason: payload.retentionReason,
         reviewDue: payload.reviewDue ?? null,
@@ -102,7 +110,8 @@ export const useEvidenceUpload = () => {
         categories: payload.categories ?? [],
         nextAction: payload.nextAction,
         statusNote: payload.statusNote,
-        initialStatus: payload.initialStatus ?? 'PENDING'
+        initialStatus: payload.initialStatus ?? 'PENDING',
+        source: payload.source ?? 'manual'
       };
 
       const { data: record } = await apiClient.post<EvidenceRecord>(
@@ -113,6 +122,100 @@ export const useEvidenceUpload = () => {
       queryClient.setQueryData<EvidenceRecord[]>(['evidence'], (current = []) => [record, ...current]);
 
       return record;
+    }
+  });
+};
+
+export type UpdateEvidenceStatusInput = {
+  id: string;
+  status: EvidenceStatus;
+  ingestionStatus?: EvidenceIngestionStatus;
+  reviewerId?: string;
+  reviewDue?: string;
+  retentionPeriodDays?: number;
+  retentionReason?: string;
+  ingestionNotes?: string;
+  statusNote?: string;
+  nextAction?: string;
+};
+
+export const useUpdateEvidenceStatus = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...payload }: UpdateEvidenceStatusInput) => {
+      const response = await apiClient.patch<EvidenceRecord>(`/evidence/${id}/status`, payload);
+      return response.data;
+    },
+    onSuccess(updated) {
+      queryClient.setQueryData<EvidenceRecord[]>(['evidence'], (current = []) =>
+        current.map((item) => (item.id === updated.id ? updated : item))
+      );
+    }
+  });
+};
+
+export type UpdateEvidenceMetadataInput = {
+  id: string;
+  payload: {
+    name?: string;
+    frameworkIds?: string[];
+    controlIds?: string[];
+    categories?: string[];
+    tags?: string[];
+    notes?: string;
+    nextAction?: string;
+    source?: string;
+  };
+};
+
+export const useUpdateEvidenceMetadata = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, payload }: UpdateEvidenceMetadataInput) => {
+      const response = await apiClient.patch<EvidenceRecord>(`/evidence/${id}`, payload);
+      return response.data;
+    },
+    onSuccess(updated) {
+      queryClient.setQueryData<EvidenceRecord[]>(['evidence'], (current = []) =>
+        current.map((item) => (item.id === updated.id ? updated : item))
+      );
+    }
+  });
+};
+
+export type UpdateEvidenceLinksInput = {
+  id: string;
+  assessmentControlIds: string[];
+};
+
+export const useUpdateEvidenceLinks = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, assessmentControlIds }: UpdateEvidenceLinksInput) => {
+      const response = await apiClient.put<EvidenceRecord>(`/evidence/${id}/assessment-links`, {
+        assessmentControlIds
+      });
+      return response.data;
+    },
+    onSuccess(updated) {
+      queryClient.setQueryData<EvidenceRecord[]>(['evidence'], (current = []) =>
+        current.map((item) => (item.id === updated.id ? updated : item))
+      );
+    }
+  });
+};
+
+export const useDeleteEvidence = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await apiClient.delete(`/evidence/${id}`);
+      return id;
+    },
+    onSuccess(id) {
+      queryClient.setQueryData<EvidenceRecord[]>(['evidence'], (current = []) =>
+        current.filter((item) => item.id !== id)
+      );
     }
   });
 };

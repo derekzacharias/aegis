@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -25,6 +26,8 @@ import { RequestUploadDto } from './dto/request-upload.dto';
 import { ConfirmUploadDto } from './dto/confirm-upload.dto';
 import { UpdateEvidenceStatusDto } from './dto/update-evidence-status.dto';
 import { CreateEvidenceDto } from './dto/create-evidence.dto';
+import { UpdateEvidenceMetadataDto } from './dto/update-evidence-metadata.dto';
+import { UpdateEvidenceLinksDto } from './dto/update-evidence-links.dto';
 
 @Roles(UserRole.READ_ONLY, UserRole.ANALYST, UserRole.AUDITOR, UserRole.ADMIN)
 @Controller('evidence')
@@ -34,6 +37,14 @@ export class EvidenceController {
   @Get()
   async list(@CurrentUser() user: AuthenticatedUser): Promise<EvidenceRecord[]> {
     return this.evidenceService.list(user.organizationId);
+  }
+
+  @Get(':id')
+  async getOne(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') evidenceId: string
+  ): Promise<EvidenceRecord> {
+    return this.evidenceService.get(user.organizationId, evidenceId);
   }
 
   @Roles(UserRole.ANALYST, UserRole.ADMIN)
@@ -85,5 +96,34 @@ export class EvidenceController {
     @Body() payload: UpdateEvidenceStatusDto
   ): Promise<EvidenceRecord> {
     return this.evidenceService.updateStatus(user, evidenceId, payload);
+  }
+
+  @Roles(UserRole.ANALYST, UserRole.ADMIN)
+  @Patch(':id')
+  async updateMetadata(
+    @Param('id') evidenceId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() payload: UpdateEvidenceMetadataDto
+  ): Promise<EvidenceRecord> {
+    return this.evidenceService.updateMetadata(user, evidenceId, payload);
+  }
+
+  @Roles(UserRole.ANALYST, UserRole.ADMIN)
+  @Put(':id/assessment-links')
+  async syncAssessmentLinks(
+    @Param('id') evidenceId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() payload: UpdateEvidenceLinksDto
+  ): Promise<EvidenceRecord> {
+    return this.evidenceService.updateAssessmentLinks(user, evidenceId, payload);
+  }
+
+  @Roles(UserRole.ANALYST, UserRole.ADMIN)
+  @Delete(':id')
+  async remove(
+    @Param('id') evidenceId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<void> {
+    await this.evidenceService.delete(user, evidenceId);
   }
 }

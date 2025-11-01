@@ -29,6 +29,11 @@ export class ConfirmUploadDto {
   controlIds?: string[];
 
   @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  assessmentControlIds?: string[];
+
+  @IsOptional()
   @IsISO8601()
   reviewDue?: string;
 

@@ -9,8 +9,6 @@ import { createReadStream, existsSync } from 'fs';
 import { URL } from 'url';
 import path from 'path';
 import {
-  assessmentStore,
-  AssessmentStoreType,
   jobQueue,
   JobQueue,
   JobRecord,
@@ -22,6 +20,7 @@ import {
   ReportStoreType,
   ReportArtifactRecord
 } from '@compliance/shared';
+import { PrismaService } from '../prisma/prisma.service';
 
 const REPORT_JOB_NAME = 'report.generate';
 const API_PREFIX = '/api';
@@ -30,27 +29,32 @@ const API_PREFIX = '/api';
 export class ReportingService {
   private readonly logger = new Logger(ReportingService.name);
   private readonly queue: JobQueue;
-  private readonly assessments: AssessmentStoreType;
   private readonly reports: ReportStoreType;
 
   constructor(
+    private readonly prisma: PrismaService,
     @Optional() queue?: JobQueue,
-    @Optional() assessments?: AssessmentStoreType,
     @Optional() reports?: ReportStoreType
   ) {
     this.queue = queue ?? jobQueue;
-    this.assessments = assessments ?? assessmentStore;
     this.reports = reports ?? reportStore;
   }
 
   async queueReport(
+    organizationId: string,
     assessmentId: string,
     formats: ReportFormat[],
     requestedBy: string
   ): Promise<ReportJobView> {
-    const assessment = this.assessments.get(assessmentId);
+    const assessment = await this.prisma.assessmentProject.findUnique({
+      where: { id: assessmentId },
+      select: {
+        id: true,
+        organizationId: true
+      }
+    });
 
-    if (!assessment) {
+    if (!assessment || assessment.organizationId !== organizationId) {
       throw new NotFoundException(`Assessment ${assessmentId} not found`);
     }
 

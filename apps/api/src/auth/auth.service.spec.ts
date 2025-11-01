@@ -196,10 +196,18 @@ describe('AuthService', () => {
         email: 'user@example.com',
         firstName: 'Test',
         lastName: 'User',
+        jobTitle: null,
+        phoneNumber: null,
+        timezone: null,
+        avatarUrl: null,
+        bio: null,
         role: UserRole.ANALYST,
         passwordHash: 'hash',
         refreshTokenHash: hashedRefresh,
-        organizationId: 'org-1'
+        organizationId: 'org-1',
+        lastLoginAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date()
       });
 
       mockJwtService.signAsync

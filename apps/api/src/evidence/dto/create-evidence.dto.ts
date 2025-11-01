@@ -1,4 +1,12 @@
-import { ArrayNotEmpty, IsArray, IsIn, IsNumber, IsPositive, IsString } from 'class-validator';
+import {
+  ArrayNotEmpty,
+  IsArray,
+  IsIn,
+  IsNumber,
+  IsOptional,
+  IsPositive,
+  IsString
+} from 'class-validator';
 import { CreateEvidenceInput } from '../evidence.service';
 
 export class CreateEvidenceDto implements CreateEvidenceInput {
@@ -10,6 +18,11 @@ export class CreateEvidenceDto implements CreateEvidenceInput {
 
   @ArrayNotEmpty()
   frameworkIds!: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  assessmentControlIds?: string[];
 
   @IsString()
   uploadedBy!: string;

@@ -3,7 +3,7 @@ export * from './lib/assessment.types';
 export * from './lib/evidence.types';
 export * from './lib/policy.types';
 export * from './lib/auth.types';
-export * from './lib/assessment.store';
+export * from './lib/user.types';
 export * from './lib/job-queue';
 export * from './lib/reporting.types';
 export * from './lib/report.store';

@@ -15,10 +15,14 @@ import {
 import { useMemo, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { useFrameworks } from '../hooks/use-frameworks';
+import type { FrameworkSummary } from '../hooks/use-frameworks';
+import CustomFrameworkWizard from '../components/custom-framework-wizard';
 
 const FrameworksPage = () => {
   const { data, isLoading, isError } = useFrameworks();
   const [search, setSearch] = useState('');
+  const [isWizardOpen, setWizardOpen] = useState(false);
+  const [selectedFramework, setSelectedFramework] = useState<FrameworkSummary | undefined>(undefined);
 
   const filtered = useMemo(() => {
     if (!data) {
@@ -35,12 +39,28 @@ const FrameworksPage = () => {
   }, [data, search]);
 
   const badgeColor = useColorModeValue('gray.200', 'gray.700');
+  const openNewFrameworkWizard = () => {
+    setSelectedFramework(undefined);
+    setWizardOpen(true);
+  };
+
+  const resumeDraft = (framework: (typeof filtered)[number]) => {
+    setSelectedFramework(framework);
+    setWizardOpen(true);
+  };
+
+  const closeWizard = () => {
+    setWizardOpen(false);
+    setSelectedFramework(undefined);
+  };
 
   return (
     <VStack align="stretch" spacing={6}>
       <HStack justify="space-between">
         <Heading size="lg">Framework Library</Heading>
-        <Button colorScheme="brand">Add Custom Framework</Button>
+        <Button colorScheme="brand" onClick={openNewFrameworkWizard}>
+          Add Custom Framework
+        </Button>
       </HStack>
       <Input
         placeholder="Search frameworks by name, family, or description..."
@@ -79,9 +99,19 @@ const FrameworksPage = () => {
                   <Heading size="md">{framework.name}</Heading>
                   <Text color="gray.500">{framework.description}</Text>
                 </VStack>
-                <Badge fontSize="0.75rem" px={3} py={1} bg={badgeColor}>
-                  {framework.family}
-                </Badge>
+                <VStack align="end" spacing={1}>
+                  <Badge fontSize="0.75rem" px={3} py={1} bg={badgeColor}>
+                    {formatFamily(framework.family)}
+                  </Badge>
+                  <Badge
+                    fontSize="0.65rem"
+                    px={2}
+                    py={0.5}
+                    colorScheme={framework.status === 'PUBLISHED' ? 'green' : 'yellow'}
+                  >
+                    {framework.status === 'PUBLISHED' ? 'Published' : 'Draft'}
+                  </Badge>
+                </VStack>
               </HStack>
               <HStack justify="space-between">
                 <Text fontSize="sm" color="gray.400">
@@ -92,6 +122,16 @@ const FrameworksPage = () => {
                 </Text>
               </HStack>
               <HStack spacing={3} justify="flex-end">
+                {framework.isCustom && framework.status === 'DRAFT' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    colorScheme="orange"
+                    onClick={() => resumeDraft(framework)}
+                  >
+                    Resume draft
+                  </Button>
+                )}
                 <Button
                   as={RouterLink}
                   to={`/frameworks/${framework.id}/crosswalk`}
@@ -114,8 +154,20 @@ const FrameworksPage = () => {
           </Box>
         ))}
       </SimpleGrid>
+      <CustomFrameworkWizard
+        isOpen={isWizardOpen}
+        onClose={closeWizard}
+        framework={selectedFramework}
+      />
     </VStack>
   );
+};
+
+const formatFamily = (family: string) => {
+  if (family === 'CUSTOM') {
+    return 'Custom';
+  }
+  return family;
 };
 
 export default FrameworksPage;

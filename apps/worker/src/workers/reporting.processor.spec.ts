@@ -1,13 +1,10 @@
 import { promises as fs } from 'fs';
 import { ConfigService } from '@nestjs/config';
-import {
-  assessmentStore,
-  jobQueue,
-  reportStore,
-  ReportJobPayload
-} from '@compliance/shared';
+import { AssessmentStatus as PrismaAssessmentStatus } from '@prisma/client';
+import { jobQueue, reportStore, ReportJobPayload } from '@compliance/shared';
 import { ReportingProcessor, BrowserFactory } from './reporting.processor';
 import { Page } from 'puppeteer';
+import { PrismaService } from '../prisma.service';
 
 class InMemoryBrowserFactory implements BrowserFactory {
   async launch() {
@@ -48,19 +45,24 @@ describe('ReportingProcessor', () => {
   const configService = {
     get: <T>(_key: string, defaultValue?: T) => defaultValue ?? (undefined as T)
   } as unknown as ConfigService;
+  const mockPrisma = {
+    assessmentProject: {
+      findUnique: jest.fn()
+    }
+  };
 
   let processor: ReportingProcessor;
 
   beforeEach(async () => {
     jobQueue.reset();
     reportStore.clear();
-    assessmentStore.reset();
+    jest.clearAllMocks();
 
     processor = new ReportingProcessor(
       configService,
+      mockPrisma as unknown as PrismaService,
       jobQueue,
       reportStore,
-      assessmentStore,
       browserFactory
     );
 
@@ -74,10 +76,31 @@ describe('ReportingProcessor', () => {
   });
 
   it('renders artifacts for queued report jobs', async () => {
-    const [assessment] = assessmentStore.list();
+    const now = new Date();
+    mockPrisma.assessmentProject.findUnique.mockResolvedValueOnce({
+      id: 'assessment-1',
+      name: 'FedRAMP Moderate Baseline Readiness',
+      status: PrismaAssessmentStatus.DRAFT,
+      ownerEmail: 'compliance-team@example.com',
+      owner: { email: 'compliance-team@example.com' },
+      organizationId: 'org-1',
+      createdAt: now,
+      updatedAt: now,
+      progressSatisfied: 142,
+      progressPartial: 98,
+      progressUnsatisfied: 34,
+      progressTotal: 310,
+      frameworks: [
+        {
+          id: 'af-1',
+          assessmentId: 'assessment-1',
+          frameworkId: 'nist-800-53-rev5'
+        }
+      ]
+    });
 
     const job = await jobQueue.enqueue<ReportJobPayload>('report.generate', {
-      assessmentId: assessment.id,
+      assessmentId: 'assessment-1',
       formats: ['html', 'pdf'],
       requestedBy: 'qa@example.com'
     });
@@ -85,6 +108,13 @@ describe('ReportingProcessor', () => {
     const completedJob = await waitForCompletion(job.id);
 
     expect(completedJob.status).toBe('completed');
+    expect(mockPrisma.assessmentProject.findUnique).toHaveBeenCalledWith({
+      where: { id: 'assessment-1' },
+      include: {
+        frameworks: true,
+        owner: true
+      }
+    });
     const artifacts = reportStore.findByJob(job.id);
     expect(artifacts).toHaveLength(2);
 

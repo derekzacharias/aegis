@@ -1,7 +1,8 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import apiClient from '../services/api-client';
 
 export type CrosswalkMatchStatus = 'mapped' | 'suggested';
+export type CrosswalkStatusFilter = 'all' | CrosswalkMatchStatus;
 
 export type ControlReference = {
   id: string;
@@ -38,23 +39,32 @@ export type CrosswalkResponse = {
   frameworkId: string;
   generatedAt: string;
   total: number;
+  page: number;
+  pageSize: number;
+  hasNextPage: boolean;
   matches: CrosswalkMatch[];
   filters: {
     targetFrameworkId?: string;
     minConfidence?: number;
+    search?: string;
+    status: CrosswalkStatusFilter;
   };
 };
 
 export type CrosswalkParams = {
   targetFrameworkId?: string;
   minConfidence?: number;
+  search?: string;
+  status?: CrosswalkStatusFilter;
+  page?: number;
+  pageSize?: number;
 };
 
 export const useCrosswalk = (
   frameworkId: string | undefined,
   params: CrosswalkParams
-) =>
-  useQuery({
+): UseQueryResult<CrosswalkResponse, Error> =>
+  useQuery<CrosswalkResponse, Error>({
     queryKey: ['frameworks', frameworkId, 'crosswalk', params],
     queryFn: async () => {
       if (!frameworkId) {
@@ -69,6 +79,16 @@ export const useCrosswalk = (
             minConfidence:
               typeof params.minConfidence === 'number'
                 ? params.minConfidence
+                : undefined,
+            search: params.search || undefined,
+            status: params.status && params.status !== 'all' ? params.status : undefined,
+            page:
+              typeof params.page === 'number' && params.page > 0
+                ? params.page
+                : undefined,
+            pageSize:
+              typeof params.pageSize === 'number' && params.pageSize > 0
+                ? params.pageSize
                 : undefined
           }
         }
@@ -77,7 +97,6 @@ export const useCrosswalk = (
       return response.data;
     },
     enabled: Boolean(frameworkId),
-    keepPreviousData: true,
     staleTime: 1000 * 60 * 5,
     retry: false
   });

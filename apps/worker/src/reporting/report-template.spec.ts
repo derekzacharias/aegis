@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { renderAssessmentReport } from './report-template';
-import { assessmentStore } from '@compliance/shared';
+import { AssessmentSummary } from '@compliance/shared';
 
 describe('renderAssessmentReport', () => {
   const templatePath = path.resolve(process.cwd(), 'apps/worker/templates/assessment-report.hbs');
@@ -11,7 +11,21 @@ describe('renderAssessmentReport', () => {
   });
 
   it('renders assessment data into the HTML template', async () => {
-    const [assessment] = assessmentStore.list();
+    const assessment: AssessmentSummary = {
+      id: 'assessment-1',
+      name: 'FedRAMP Moderate Baseline Readiness',
+      frameworkIds: ['nist-800-53-rev5', 'nist-csf-2-0'],
+      status: 'in-progress',
+      owner: 'compliance-team@example.com',
+      createdAt: new Date('2024-01-10T08:00:00Z').toISOString(),
+      updatedAt: new Date('2024-02-28T23:30:00Z').toISOString(),
+      progress: {
+        satisfied: 142,
+        partial: 98,
+        unsatisfied: 34,
+        total: 310
+      }
+    };
     const html = await renderAssessmentReport({
       assessment,
       generatedAt: new Date('2024-03-01T12:00:00Z').toISOString(),

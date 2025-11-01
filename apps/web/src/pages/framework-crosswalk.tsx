@@ -13,6 +13,7 @@ import {
   HStack,
   Icon,
   IconButton,
+  Input,
   Modal,
   ModalBody,
   ModalCloseButton,
@@ -26,7 +27,6 @@ import {
   SimpleGrid,
   Spinner,
   Stack,
-  Switch,
   Table,
   Tbody,
   Td,
@@ -36,15 +36,20 @@ import {
   Thead,
   Tr,
   VStack,
+  Menu,
+  MenuButton,
+  MenuItem,
+  MenuList,
   useColorModeValue,
   useDisclosure,
   useToast
 } from '@chakra-ui/react';
-import { ChangeEvent, useEffect, useMemo, useState } from 'react';
-import { FiArrowLeft, FiPlus, FiTrash2 } from 'react-icons/fi';
+import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FiArrowLeft, FiDownload, FiPlus, FiTrash2 } from 'react-icons/fi';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useFrameworks } from '../hooks/use-frameworks';
 import {
+  EvidenceReuseHint,
   CrosswalkMatch,
   CrosswalkParams,
   useCrosswalk
@@ -304,22 +309,86 @@ const FrameworkCrosswalkPage = () => {
   const toast = useToast();
   const disclosure = useDisclosure();
   const [editingMatch, setEditingMatch] = useState<CrosswalkMatch | null>(null);
-  const [suggestionsOnly, setSuggestionsOnly] = useState(false);
 
   const targetFrameworkId = searchParams.get('targetFrameworkId') ?? undefined;
   const minConfidenceParam = searchParams.get('minConfidence');
-  const minConfidence = minConfidenceParam ? Number.parseFloat(minConfidenceParam) : undefined;
+  const statusParam = searchParams.get('status');
+  const rawSearchParam = searchParams.get('search') ?? '';
+  const pageParam = searchParams.get('page');
+  const pageSizeParam = searchParams.get('pageSize');
+
+  const parsedMinConfidence = minConfidenceParam ? Number.parseFloat(minConfidenceParam) : undefined;
+  const normalizedMinConfidence =
+    typeof parsedMinConfidence === 'number' && !Number.isNaN(parsedMinConfidence)
+      ? Math.min(Math.max(parsedMinConfidence, 0), 1)
+      : undefined;
+
+  const matchStatus: CrosswalkParams['status'] =
+    statusParam === 'mapped' || statusParam === 'suggested' ? statusParam : 'all';
+
+  const normalizedSearchValue = rawSearchParam.trim();
+
+  const parsedPage = pageParam ? Number.parseInt(pageParam, 10) : NaN;
+  const parsedPageSize = pageSizeParam ? Number.parseInt(pageSizeParam, 10) : NaN;
+  const sanitizedPage = Number.isNaN(parsedPage) || parsedPage < 1 ? 1 : parsedPage;
+  const sanitizedPageSize = Number.isNaN(parsedPageSize) || parsedPageSize < 1 ? 25 : parsedPageSize;
+
+  const [searchDraft, setSearchDraft] = useState<string>(rawSearchParam);
+
+  useEffect(() => {
+    setSearchDraft(rawSearchParam);
+  }, [rawSearchParam]);
 
   const filters: CrosswalkParams = useMemo(
     () => ({
       targetFrameworkId: targetFrameworkId || undefined,
-      minConfidence:
-        typeof minConfidence === 'number' && !Number.isNaN(minConfidence)
-          ? minConfidence
-          : undefined
+      minConfidence: normalizedMinConfidence ?? defaultMinConfidence,
+      search: normalizedSearchValue ? normalizedSearchValue : undefined,
+      status: matchStatus,
+      page: sanitizedPage,
+      pageSize: sanitizedPageSize
     }),
-    [targetFrameworkId, minConfidence]
+    [
+      targetFrameworkId,
+      normalizedMinConfidence,
+      normalizedSearchValue,
+      matchStatus,
+      sanitizedPage,
+      sanitizedPageSize
+    ]
   );
+
+  const setParams = useCallback(
+    (mutator: (params: URLSearchParams) => void) => {
+      const next = new URLSearchParams(searchParams);
+      mutator(next);
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams]
+  );
+
+  useEffect(() => {
+    const normalizedDraft = searchDraft.trim();
+
+    if (normalizedDraft === normalizedSearchValue) {
+      return;
+    }
+
+    const handle = window.setTimeout(() => {
+      setParams((next) => {
+        if (normalizedDraft) {
+          next.set('search', normalizedDraft);
+        } else {
+          next.delete('search');
+        }
+        next.delete('page');
+      });
+    }, 300);
+
+    return () => {
+      window.clearTimeout(handle);
+    };
+  }, [searchDraft, normalizedSearchValue, setParams]);
 
   const { data: frameworks } = useFrameworks();
   const currentFramework = useMemo(
@@ -334,42 +403,196 @@ const FrameworkCrosswalkPage = () => {
     return frameworks.filter((fw) => fw.id !== frameworkId);
   }, [frameworkId, frameworks]);
 
-  const [confidenceDraft, setConfidenceDraft] = useState(
-    filters.minConfidence ?? defaultMinConfidence
-  );
+  const minConfidenceValue = filters.minConfidence ?? defaultMinConfidence;
+  const [confidenceDraft, setConfidenceDraft] = useState<number>(minConfidenceValue);
 
   useEffect(() => {
-    setConfidenceDraft(filters.minConfidence ?? defaultMinConfidence);
-  }, [filters.minConfidence]);
+    setConfidenceDraft(minConfidenceValue);
+  }, [minConfidenceValue]);
 
   const { data, isLoading, isFetching, isError, error } = useCrosswalk(frameworkId, filters);
   const upsertMapping = useUpsertCrosswalkMapping(frameworkId);
 
-  const matches = useMemo(() => {
-    const all = data?.matches ?? [];
-    return suggestionsOnly ? all.filter((match) => match.status === 'suggested') : all;
-  }, [data?.matches, suggestionsOnly]);
-
-  const updateSearchParam = (key: string, value: string | null) => {
-    const next = new URLSearchParams(searchParams);
-    if (value && value.length > 0) {
-      next.set(key, value);
-    } else {
-      next.delete(key);
-    }
-    setSearchParams(next, { replace: true });
-  };
+  const matches: CrosswalkMatch[] = data?.matches ?? [];
 
   const handleTargetFrameworkChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    updateSearchParam('targetFrameworkId', event.target.value || null);
+    const value = event.target.value;
+    setParams((next) => {
+      if (value) {
+        next.set('targetFrameworkId', value);
+      } else {
+        next.delete('targetFrameworkId');
+      }
+      next.delete('page');
+    });
   };
 
   const handleConfidenceBlur = () => {
     const normalized = Number.isFinite(confidenceDraft)
       ? confidenceDraft
       : defaultMinConfidence;
-    updateSearchParam('minConfidence', normalized.toFixed(2));
+    const clamped = Math.min(Math.max(normalized, 0), 1);
+    setConfidenceDraft(clamped);
+    setParams((next) => {
+      if (clamped === defaultMinConfidence) {
+        next.delete('minConfidence');
+      } else {
+        next.set('minConfidence', clamped.toFixed(2));
+      }
+      next.delete('page');
+    });
   };
+
+  const handleMatchTypeChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const value = event.target.value as 'all' | 'mapped' | 'suggested';
+    setParams((next) => {
+      if (value === 'all') {
+        next.delete('status');
+      } else {
+        next.set('status', value);
+      }
+      next.delete('page');
+    });
+  };
+
+  const handlePageSizeChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const parsed = Number.parseInt(event.target.value, 10);
+    const normalized = Number.isNaN(parsed) || parsed < 1 ? 25 : parsed;
+    setParams((next) => {
+      next.set('pageSize', normalized.toString());
+      next.delete('page');
+    });
+  };
+
+  const appliedPage = data?.page ?? sanitizedPage;
+  const appliedPageSize = data?.pageSize ?? sanitizedPageSize;
+  const totalMatches = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalMatches / appliedPageSize));
+  const canGoPrevious = appliedPage > 1;
+  const canGoNext = data ? data.hasNextPage : appliedPage < totalPages;
+
+  const goToPrevious = () => {
+    if (!canGoPrevious) {
+      return;
+    }
+    const nextPage = appliedPage - 1;
+    setParams((next) => {
+      if (nextPage <= 1) {
+        next.delete('page');
+      } else {
+        next.set('page', nextPage.toString());
+      }
+    });
+  };
+
+  const goToNext = () => {
+    if (!canGoNext) {
+      return;
+    }
+    const nextPage = appliedPage + 1;
+    setParams((next) => {
+      next.set('page', nextPage.toString());
+    });
+  };
+
+  const firstItemIndex =
+    totalMatches === 0 ? 0 : (appliedPage - 1) * appliedPageSize + 1;
+  const lastItemIndex =
+    totalMatches === 0 ? 0 : firstItemIndex + matches.length - 1;
+
+  const handleExport = useCallback(
+    (format: 'csv' | 'json') => {
+      if (!data || typeof window === 'undefined') {
+        return;
+      }
+
+      const exportMatches = data.matches;
+      const timestamp = (() => {
+        const generated = new Date(data.generatedAt);
+        return Number.isNaN(generated.getTime())
+          ? new Date().toISOString()
+          : generated.toISOString();
+      })();
+      const dateStamp = timestamp.split('T')[0];
+      const filenameBase = `crosswalk-${data.frameworkId}-${dateStamp}`;
+
+      if (format === 'json') {
+        const payload = {
+          frameworkId: data.frameworkId,
+          generatedAt: data.generatedAt,
+          filters: data.filters,
+          page: data.page,
+          pageSize: data.pageSize,
+          total: data.total,
+          matches: exportMatches
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], {
+          type: 'application/json'
+        });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `${filenameBase}.json`;
+        anchor.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return;
+      }
+
+      const escapeCsv = (value: string) =>
+        `"${value.replace(/"/g, '""')}"`;
+
+      const header = [
+        'Source Control',
+        'Source Title',
+        'Target Control',
+        'Target Title',
+        'Confidence',
+        'Origin',
+        'Status',
+        'Tags',
+        'Rationale',
+        'Evidence Hints'
+      ];
+
+      const rows = exportMatches.map((match: CrosswalkMatch) => {
+        const evidence = match.evidenceHints
+          .map(
+            (hint: EvidenceReuseHint) =>
+              `${hint.summary} (${Math.round(hint.score * 100)}%)${
+                hint.rationale ? ` - ${hint.rationale}` : ''
+              }`
+          )
+          .join(' | ');
+
+        return [
+          match.source.id,
+          match.source.title,
+          match.target.id,
+          match.target.title,
+          match.confidence.toFixed(2),
+          match.origin,
+          match.status,
+          match.tags.join('|'),
+          match.rationale ?? '',
+          evidence
+        ]
+          .map((value) => escapeCsv(String(value ?? '')))
+          .join(',');
+      });
+
+      const csvContent = [header.join(','), ...rows].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${filenameBase}.csv`;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
+    [data]
+  );
+
+  const exportDisabled = !data || data.total === 0;
 
   const openManualModal = (match: CrosswalkMatch) => {
     setEditingMatch(match);
@@ -407,7 +630,6 @@ const FrameworkCrosswalkPage = () => {
   const cardBorder = useColorModeValue('gray.200', 'gray.700');
   const tableStriped = useColorModeValue('gray.50', 'gray.800');
   const suggestionBg = useColorModeValue('yellow.50', 'gray.900');
-  const suggestionsSwitchId = 'crosswalk-suggestions-only';
 
   return (
     <VStack align="stretch" spacing={6}>
@@ -429,16 +651,54 @@ const FrameworkCrosswalkPage = () => {
         ) : null}
       </HStack>
 
-      <VStack align="stretch" spacing={2}>
-        <Heading size="lg">Crosswalk Explorer</Heading>
-        <Text color="gray.500">
-          {currentFramework
-            ? `Suggested mappings for ${currentFramework.name} (${currentFramework.version}).`
-            : 'Review suggested cross-framework mappings and curate manual overrides.'}
-        </Text>
-      </VStack>
+      <Stack
+        direction={{ base: 'column', md: 'row' }}
+        justify="space-between"
+        align={{ base: 'flex-start', md: 'center' }}
+        spacing={3}
+      >
+        <VStack align="flex-start" spacing={1}>
+          <Heading size="lg">Crosswalk Explorer</Heading>
+          <Text color="gray.500">
+            {currentFramework
+              ? `Suggested mappings for ${currentFramework.name} (${currentFramework.version}).`
+              : 'Review suggested cross-framework mappings and curate manual overrides.'}
+          </Text>
+        </VStack>
+        <Menu>
+          <MenuButton
+            as={Button}
+            rightIcon={<Icon as={FiDownload} />}
+            colorScheme="brand"
+            variant="outline"
+            isDisabled={exportDisabled}
+          >
+            Export
+          </MenuButton>
+          <MenuList>
+            <MenuItem onClick={() => handleExport('csv')} isDisabled={exportDisabled}>
+              Download CSV
+            </MenuItem>
+            <MenuItem onClick={() => handleExport('json')} isDisabled={exportDisabled}>
+              Download JSON
+            </MenuItem>
+          </MenuList>
+        </Menu>
+      </Stack>
 
-      <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4} alignItems="end">
+      <FormControl>
+        <FormLabel>Search Mappings</FormLabel>
+        <Input
+          placeholder="Search by control ID, title, tags, or rationale…"
+          value={searchDraft}
+          onChange={(event) => setSearchDraft(event.target.value)}
+        />
+        <FormHelperText>
+          Search applies to both source and target controls as well as mapping tags.
+        </FormHelperText>
+      </FormControl>
+
+      <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={4} alignItems="end">
         <FormControl>
           <FormLabel>Target Framework</FormLabel>
           <Select value={targetFrameworkId ?? ''} onChange={handleTargetFrameworkChange}>
@@ -469,16 +729,24 @@ const FrameworkCrosswalkPage = () => {
           <FormHelperText>Set a floor for suggested mapping similarity scores.</FormHelperText>
         </FormControl>
 
-        <FormControl display="flex" alignItems="center">
-          <Switch
-            id={suggestionsSwitchId}
-            isChecked={suggestionsOnly}
-            onChange={(event) => setSuggestionsOnly(event.target.checked)}
-            mr={2}
-          />
-          <FormLabel htmlFor={suggestionsSwitchId} m={0}>
-            Show suggestions only
-          </FormLabel>
+        <FormControl>
+          <FormLabel>Match Type</FormLabel>
+          <Select value={matchStatus} onChange={handleMatchTypeChange}>
+            <option value="all">All matches</option>
+            <option value="mapped">Mapped only</option>
+            <option value="suggested">Suggestions only</option>
+          </Select>
+        </FormControl>
+
+        <FormControl>
+          <FormLabel>Results Per Page</FormLabel>
+          <Select value={appliedPageSize.toString()} onChange={handlePageSizeChange}>
+            {[10, 25, 50, 100].map((option) => (
+              <option key={option} value={option}>
+                {option} per page
+              </option>
+            ))}
+          </Select>
         </FormControl>
       </SimpleGrid>
 
@@ -504,122 +772,142 @@ const FrameworkCrosswalkPage = () => {
       ) : null}
 
       {!isLoading && !isError ? (
-        <Box borderWidth="1px" borderRadius="lg" borderColor={cardBorder} overflow="hidden">
-          <Table size="sm" variant="simple">
-            <Thead bg={tableStriped}>
-              <Tr>
-                <Th>Source Control</Th>
-                <Th>Target Control</Th>
-                <Th>Confidence</Th>
-                <Th>Origin</Th>
-                <Th>Tags</Th>
-                <Th>Evidence</Th>
-                <Th>Actions</Th>
-              </Tr>
-            </Thead>
-            <Tbody>
-              {matches.length === 0 ? (
+        <>
+          <Box borderWidth="1px" borderRadius="lg" borderColor={cardBorder} overflow="hidden">
+            <Table size="sm" variant="simple">
+              <Thead bg={tableStriped}>
                 <Tr>
-                  <Td colSpan={7}>
-                    <Text fontSize="sm" color="gray.500">
-                      No crosswalk matches found for the selected filters.
-                    </Text>
-                  </Td>
+                  <Th>Source Control</Th>
+                  <Th>Target Control</Th>
+                  <Th>Confidence</Th>
+                  <Th>Origin</Th>
+                  <Th>Tags</Th>
+                  <Th>Evidence</Th>
+                  <Th>Actions</Th>
                 </Tr>
-              ) : (
-                matches.map((match) => (
-                  <Tr key={match.id} bg={match.status === 'suggested' ? suggestionBg : undefined}>
-                    <Td>
-                      <Stack spacing={1}>
-                        <Text fontWeight="semibold">{match.source.id}</Text>
-                        <Text fontSize="sm" color="gray.500">
-                          {match.source.title}
-                        </Text>
-                        <Badge variant="subtle" width="fit-content">
-                          {match.source.family}
-                        </Badge>
-                      </Stack>
-                    </Td>
-                    <Td>
-                      <Stack spacing={1}>
-                        <Text fontWeight="semibold">{match.target.id}</Text>
-                        <Text fontSize="sm" color="gray.500">
-                          {match.target.title}
-                        </Text>
-                        <Badge variant="subtle" width="fit-content">
-                          {match.target.family}
-                        </Badge>
-                      </Stack>
-                    </Td>
-                    <Td>
-                      <Stack spacing={1}>
-                        <Text fontWeight="semibold">{Math.round(match.confidence * 100)}%</Text>
-                        {match.similarityBreakdown?.matchedTerms?.length ? (
-                          <Text fontSize="xs" color="gray.500">
-                            Keywords: {match.similarityBreakdown.matchedTerms.join(', ')}
-                          </Text>
-                        ) : null}
-                      </Stack>
-                    </Td>
-                    <Td>
-                      <Stack spacing={1}>
-                        <Badge colorScheme={match.status === 'suggested' ? 'yellow' : 'green'}>
-                          {match.status === 'suggested' ? 'Suggested' : 'Mapped'}
-                        </Badge>
-                        <Text fontSize="xs" color="gray.500">
-                          Origin: {match.origin}
-                        </Text>
-                      </Stack>
-                    </Td>
-                    <Td>
-                      <HStack spacing={1} flexWrap="wrap">
-                        {match.tags.map((tag) => (
-                          <Badge key={tag} colorScheme="purple" variant="subtle">
-                            {tag}
-                          </Badge>
-                        ))}
-                        {match.tags.length === 0 ? (
-                          <Text fontSize="xs" color="gray.400">
-                            —
-                          </Text>
-                        ) : null}
-                      </HStack>
-                    </Td>
-                    <Td>
-                      <Stack spacing={1}>
-                        {match.evidenceHints.length ? (
-                          match.evidenceHints.map((hint) => (
-                            <Box key={hint.id}>
-                              <Text fontSize="sm">{hint.summary}</Text>
-                              <Text fontSize="xs" color="gray.500">
-                                Score: {Math.round(hint.score * 100)}%
-                                {hint.rationale ? ` · ${hint.rationale}` : ''}
-                              </Text>
-                            </Box>
-                          ))
-                        ) : (
-                          <Text fontSize="xs" color="gray.400">
-                            None provided
-                          </Text>
-                        )}
-                      </Stack>
-                    </Td>
-                    <Td>
-                      <Button
-                        size="sm"
-                        colorScheme={match.status === 'suggested' ? 'brand' : 'gray'}
-                        onClick={() => openManualModal(match)}
-                        isDisabled={upsertMapping.isLoading}
-                      >
-                        {match.status === 'suggested' ? 'Review & save' : 'Edit mapping'}
-                      </Button>
+              </Thead>
+              <Tbody>
+                {matches.length === 0 ? (
+                  <Tr>
+                    <Td colSpan={7}>
+                      <Text fontSize="sm" color="gray.500">
+                        No crosswalk matches found for the selected filters.
+                      </Text>
                     </Td>
                   </Tr>
-                ))
-              )}
-            </Tbody>
-          </Table>
-        </Box>
+                ) : (
+                matches.map((match: CrosswalkMatch) => (
+                    <Tr key={match.id} bg={match.status === 'suggested' ? suggestionBg : undefined}>
+                      <Td>
+                        <Stack spacing={1}>
+                          <Text fontWeight="semibold">{match.source.id}</Text>
+                          <Text fontSize="sm" color="gray.500">
+                            {match.source.title}
+                          </Text>
+                          <Badge variant="subtle" width="fit-content">
+                            {match.source.family}
+                          </Badge>
+                        </Stack>
+                      </Td>
+                      <Td>
+                        <Stack spacing={1}>
+                          <Text fontWeight="semibold">{match.target.id}</Text>
+                          <Text fontSize="sm" color="gray.500">
+                            {match.target.title}
+                          </Text>
+                          <Badge variant="subtle" width="fit-content">
+                            {match.target.family}
+                          </Badge>
+                        </Stack>
+                      </Td>
+                      <Td>
+                        <Stack spacing={1}>
+                          <Text fontWeight="semibold">{Math.round(match.confidence * 100)}%</Text>
+                          {match.similarityBreakdown?.matchedTerms?.length ? (
+                            <Text fontSize="xs" color="gray.500">
+                              Keywords: {match.similarityBreakdown.matchedTerms.join(', ')}
+                            </Text>
+                          ) : null}
+                        </Stack>
+                      </Td>
+                      <Td>
+                        <Stack spacing={1}>
+                          <Badge colorScheme={match.status === 'suggested' ? 'yellow' : 'green'}>
+                            {match.status === 'suggested' ? 'Suggested' : 'Mapped'}
+                          </Badge>
+                          <Text fontSize="xs" color="gray.500">
+                            Origin: {match.origin}
+                          </Text>
+                        </Stack>
+                      </Td>
+                      <Td>
+                        <HStack spacing={1} flexWrap="wrap">
+                        {match.tags.map((tag: string) => (
+                            <Badge key={tag} colorScheme="purple" variant="subtle">
+                              {tag}
+                            </Badge>
+                          ))}
+                          {match.tags.length === 0 ? (
+                            <Text fontSize="xs" color="gray.400">
+                              —
+                            </Text>
+                          ) : null}
+                        </HStack>
+                      </Td>
+                      <Td>
+                        <Stack spacing={1}>
+                        {match.evidenceHints.length ? (
+                          match.evidenceHints.map((hint: EvidenceReuseHint) => (
+                              <Box key={hint.id}>
+                                <Text fontSize="sm">{hint.summary}</Text>
+                                <Text fontSize="xs" color="gray.500">
+                                  Score: {Math.round(hint.score * 100)}%
+                                  {hint.rationale ? ` · ${hint.rationale}` : ''}
+                                </Text>
+                              </Box>
+                            ))
+                          ) : (
+                            <Text fontSize="xs" color="gray.400">
+                              None provided
+                            </Text>
+                          )}
+                        </Stack>
+                      </Td>
+                      <Td>
+                        <Button
+                          size="sm"
+                          colorScheme={match.status === 'suggested' ? 'brand' : 'gray'}
+                          onClick={() => openManualModal(match)}
+                        isDisabled={upsertMapping.isPending}
+                        >
+                          {match.status === 'suggested' ? 'Review & save' : 'Edit mapping'}
+                        </Button>
+                      </Td>
+                    </Tr>
+                  ))
+                )}
+              </Tbody>
+            </Table>
+          </Box>
+          <HStack justify="space-between" align={{ base: 'flex-start', md: 'center' }} spacing={3}>
+            <Text fontSize="sm" color="gray.500">
+              {totalMatches === 0
+                ? 'No matches to display.'
+                : `Showing ${firstItemIndex}-${lastItemIndex} of ${totalMatches} matches`}
+            </Text>
+            <HStack spacing={2}>
+              <Button size="sm" onClick={goToPrevious} isDisabled={!canGoPrevious}>
+                Previous
+              </Button>
+              <Text fontSize="sm" color="gray.500">
+                Page {appliedPage} of {totalPages}
+              </Text>
+              <Button size="sm" onClick={goToNext} isDisabled={!canGoNext}>
+                Next
+              </Button>
+            </HStack>
+          </HStack>
+        </>
       ) : null}
 
       <ManualMappingModal
@@ -630,7 +918,7 @@ const FrameworkCrosswalkPage = () => {
           setEditingMatch(null);
         }}
         onSubmit={handleManualSubmit}
-        isSubmitting={upsertMapping.isLoading}
+        isSubmitting={upsertMapping.isPending}
       />
     </VStack>
   );

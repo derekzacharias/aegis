@@ -27,11 +27,24 @@ export interface EvidenceRetentionPolicy {
 
 export interface EvidenceMetadata extends Record<string, unknown> {
   controlIds?: string[];
+  assessmentControlIds?: string[];
+  manualControlIds?: string[];
+  manualFrameworkIds?: string[];
   categories?: string[];
   tags?: string[];
   notes?: string | null;
   nextAction?: string | null;
   source?: string | null;
+}
+
+export interface EvidenceAssessmentLink {
+  assessmentControlId: string;
+  assessmentId: string;
+  assessmentName: string;
+  assessmentStatus: 'DRAFT' | 'IN_PROGRESS' | 'COMPLETE';
+  controlId: string;
+  controlTitle: string;
+  controlFamily: string;
 }
 
 export interface EvidenceRecord {
@@ -50,6 +63,7 @@ export interface EvidenceRecord {
   checksum: string | null;
   frameworks: EvidenceFrameworkLink[];
   controlIds: string[];
+  assessmentLinks: EvidenceAssessmentLink[];
   metadata: EvidenceMetadata;
   reviewer: EvidencePerson | null;
   uploadedBy: EvidencePerson | null;

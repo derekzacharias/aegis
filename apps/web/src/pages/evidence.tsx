@@ -11,7 +11,15 @@ import {
   Heading,
   HStack,
   Icon,
+  IconButton,
   Input,
+  Menu,
+  MenuButton,
+  MenuDivider,
+  MenuItem,
+  MenuItemOption,
+  MenuList,
+  MenuOptionGroup,
   Modal,
   ModalBody,
   ModalCloseButton,
@@ -20,27 +28,61 @@ import {
   ModalHeader,
   ModalOverlay,
   Progress,
+  Select,
   SimpleGrid,
+  Spinner,
   Stack,
   Stat,
   StatHelpText,
   StatLabel,
   StatNumber,
   Tag,
+  TagLabel,
+  TagRightIcon,
   Text,
   Textarea,
+  Tooltip,
   VStack,
+  Wrap,
+  WrapItem,
   useColorModeValue,
   useDisclosure,
   useToast
 } from '@chakra-ui/react';
-import { EvidenceStatus } from '@compliance/shared';
-import { useEffect, useMemo, useState } from 'react';
-import { FiDownload, FiEye, FiUpload } from 'react-icons/fi';
-import { useEvidence, useEvidenceUpload } from '../hooks/use-evidence';
+import { EvidenceRecord, EvidenceStatus } from '@compliance/shared';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react';
+import {
+  FiDownload,
+  FiEdit,
+  FiEye,
+  FiLink,
+  FiMoreVertical,
+  FiPlus,
+  FiTrash2,
+  FiUpload,
+  FiX
+} from 'react-icons/fi';
+import {
+  useDeleteEvidence,
+  useEvidence,
+  useEvidenceUpload,
+  useUpdateEvidenceLinks,
+  useUpdateEvidenceMetadata,
+  useUpdateEvidenceStatus
+} from '../hooks/use-evidence';
 import { useFrameworks } from '../hooks/use-frameworks';
+import { useAssessmentControls, useAssessments } from '../hooks/use-assessments';
 
-const statusMeta: Record<EvidenceStatus, { label: string; color: string }> = {
+const statusMeta: Record<
+  EvidenceStatus,
+  { label: string; color: string }
+> = {
   PENDING: { label: 'Pending review', color: 'yellow' },
   APPROVED: { label: 'Approved', color: 'green' },
   ARCHIVED: { label: 'Archived', color: 'gray' },
@@ -60,35 +102,117 @@ const formatSize = (bytes: number) => {
   return `${bytes.toFixed(0)} B`;
 };
 
+type EvidenceFormState = {
+  name: string;
+  controlIds: string;
+  frameworkIds: string[];
+  assessmentId: string;
+  assessmentControlIds: string[];
+  retentionPeriodDays: number;
+  retentionReason: string;
+  reviewDue: string;
+  reviewerId: string;
+  tags: string;
+  categories: string;
+  notes: string;
+  nextAction: string;
+  source: string;
+  file: File | null;
+};
+
+const createDefaultFormState = (): EvidenceFormState => ({
+  name: '',
+  controlIds: '',
+  frameworkIds: [],
+  assessmentId: '',
+  assessmentControlIds: [],
+  retentionPeriodDays: 365,
+  retentionReason: '',
+  reviewDue: '',
+  reviewerId: '',
+  tags: '',
+  categories: '',
+  notes: '',
+  nextAction: '',
+  source: '',
+  file: null
+});
+
+const splitCsv = (value: string): string[] =>
+  value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
 const EvidencePage = () => {
   const toast = useToast();
-  const { isOpen, onOpen, onClose } = useDisclosure();
+  const uploadModal = useDisclosure();
+  const attachmentModal = useDisclosure();
+  const metadataModal = useDisclosure();
+
   const { data: evidence = [] } = useEvidence();
   const { data: frameworks = [] } = useFrameworks();
+  const { data: assessments = [] } = useAssessments();
+
   const uploadEvidence = useEvidenceUpload();
+  const updateStatus = useUpdateEvidenceStatus();
+  const updateMetadata = useUpdateEvidenceMetadata();
+  const updateLinks = useUpdateEvidenceLinks();
+  const deleteEvidence = useDeleteEvidence();
+
   const [statusFilter, setStatusFilter] = useState<'all' | EvidenceStatus>('all');
   const [search, setSearch] = useState('');
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [formState, setFormState] = useState({
-    name: '',
-    controlIds: '',
-    frameworkIds: [] as string[],
-    retentionPeriodDays: 365,
-    retentionReason: '',
-    reviewDue: '',
-    reviewerId: '',
-    tags: '',
-    categories: '',
-    notes: '',
-    nextAction: '',
-    file: null as File | null
+  const [formState, setFormState] = useState<EvidenceFormState>(createDefaultFormState);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [attachmentDraft, setAttachmentDraft] = useState<{
+    evidence: EvidenceRecord | null;
+    assessmentId: string;
+    controlIds: string[];
+  }>({
+    evidence: null,
+    assessmentId: '',
+    controlIds: []
   });
 
+  const [metadataDraft, setMetadataDraft] = useState<{
+    evidence: EvidenceRecord | null;
+    name: string;
+    nextAction: string;
+    notes: string;
+    tags: string;
+    categories: string;
+    source: string;
+  }>({
+    evidence: null,
+    name: '',
+    nextAction: '',
+    notes: '',
+    tags: '',
+    categories: '',
+    source: ''
+  });
+
+  const { data: uploadAssessmentControls = [], isFetching: isUploadControlsLoading } =
+    useAssessmentControls(formState.assessmentId || undefined);
+  const { data: attachmentControls = [], isFetching: isAttachmentControlsLoading } =
+    useAssessmentControls(attachmentDraft.assessmentId || undefined);
+
+  const cardBg = useColorModeValue('white', 'gray.800');
+  const cardBorder = useColorModeValue('gray.200', 'gray.700');
+  const dropBorder = useColorModeValue('gray.300', 'gray.600');
+  const dropActiveBorder = useColorModeValue('brand.500', 'brand.300');
+  const noteBg = useColorModeValue('gray.100', 'gray.700');
+  const noteText = useColorModeValue('gray.600', 'gray.200');
+
   useEffect(() => {
-    if (!isOpen) {
+    if (!uploadModal.isOpen) {
       setUploadProgress(0);
+      setIsDragging(false);
     }
-  }, [isOpen]);
+  }, [uploadModal.isOpen]);
 
   const stats = useMemo(() => {
     const counts = {
@@ -106,41 +230,73 @@ const EvidencePage = () => {
     return evidence.filter((item) => {
       const matchesStatus = statusFilter === 'all' || item.status === statusFilter;
       const frameworkNames = item.frameworks.map((framework) => framework.name).join(' ').toLowerCase();
+      const assessmentMatches = item.assessmentLinks.some(
+        (link) =>
+          link.assessmentName.toLowerCase().includes(term) ||
+          link.controlId.toLowerCase().includes(term)
+      );
       const matchesSearch =
         !term ||
         item.name.toLowerCase().includes(term) ||
         item.controlIds.some((control) => control.toLowerCase().includes(term)) ||
-        frameworkNames.includes(term);
+        frameworkNames.includes(term) ||
+        assessmentMatches;
 
       return matchesStatus && matchesSearch;
     });
   }, [evidence, statusFilter, search]);
 
-  const resetForm = () => {
-    setFormState({
-      name: '',
-      controlIds: '',
-      frameworkIds: [],
-      retentionPeriodDays: 365,
-      retentionReason: '',
-      reviewDue: '',
-      reviewerId: '',
-      tags: '',
-      categories: '',
-      notes: '',
-      nextAction: '',
-      file: null
-    });
-    setUploadProgress(0);
-  };
+  const handleFileSelection = useCallback((file: File | null) => {
+    setFormState((prev) => ({
+      ...prev,
+      file
+    }));
+  }, []);
 
-  const handleClose = () => {
+  const handleFileInputChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0] ?? null;
+      handleFileSelection(file);
+    },
+    [handleFileSelection]
+  );
+
+  const handleDrop = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      setIsDragging(false);
+      const file = event.dataTransfer.files?.[0] ?? null;
+      handleFileSelection(file);
+    },
+    [handleFileSelection]
+  );
+
+  const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  const openFileDialog = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const resetForm = useCallback(() => {
+    setFormState(createDefaultFormState());
+    setUploadProgress(0);
+    setIsDragging(false);
+  }, []);
+
+  const handleUploadClose = useCallback(() => {
     if (uploadEvidence.isPending) {
       return;
     }
     resetForm();
-    onClose();
-  };
+    uploadModal.onClose();
+  }, [resetForm, uploadEvidence.isPending, uploadModal]);
 
   const handleSubmit = async () => {
     if (!formState.name.trim()) {
@@ -168,27 +324,23 @@ const EvidencePage = () => {
           .split(',')
           .map((value) => value.trim())
           .filter(Boolean),
+        assessmentControlIds: formState.assessmentControlIds,
         retentionPeriodDays: formState.retentionPeriodDays || undefined,
         retentionReason: formState.retentionReason || undefined,
         reviewDue: formState.reviewDue || undefined,
         reviewerId: formState.reviewerId || undefined,
         notes: formState.notes || undefined,
-        tags: formState.tags
-          .split(',')
-          .map((value) => value.trim())
-          .filter(Boolean),
-        categories: formState.categories
-          .split(',')
-          .map((value) => value.trim())
-          .filter(Boolean),
+        tags: splitCsv(formState.tags),
+        categories: splitCsv(formState.categories),
         nextAction: formState.nextAction || undefined,
         statusNote: 'Uploaded via console',
+        source: formState.source || 'manual',
         onProgress: setUploadProgress
       });
 
       toast({ title: 'Evidence uploaded', status: 'success' });
       resetForm();
-      onClose();
+      uploadModal.onClose();
     } catch (error) {
       toast({
         title: 'Unable to upload evidence',
@@ -196,6 +348,211 @@ const EvidencePage = () => {
         status: 'error'
       });
     }
+  };
+
+  const handleStatusChange = async (record: EvidenceRecord, status: EvidenceStatus) => {
+    if (record.status === status || updateStatus.isPending) {
+      return;
+    }
+
+    try {
+      await updateStatus.mutateAsync({ id: record.id, status });
+      toast({
+        title: `Status updated: ${statusMeta[status].label}`,
+        status: 'success'
+      });
+    } catch (error) {
+      toast({
+        title: 'Failed to update status',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        status: 'error'
+      });
+    }
+  };
+
+  const handleDeleteEvidence = async (record: EvidenceRecord) => {
+    const confirmed = window.confirm(`Delete evidence "${record.name}"? This cannot be undone.`);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await deleteEvidence.mutateAsync(record.id);
+      toast({ title: 'Evidence deleted', status: 'success' });
+    } catch (error) {
+      toast({
+        title: 'Failed to delete evidence',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        status: 'error'
+      });
+    }
+  };
+
+  const handleDetachLink = async (record: EvidenceRecord, assessmentControlId: string) => {
+    const remainingIds = record.assessmentLinks
+      .filter((link) => link.assessmentControlId !== assessmentControlId)
+      .map((link) => link.assessmentControlId);
+
+    try {
+      await updateLinks.mutateAsync({
+        id: record.id,
+        assessmentControlIds: remainingIds
+      });
+      toast({ title: 'Attachment removed', status: 'info' });
+    } catch (error) {
+      toast({
+        title: 'Failed to update attachments',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        status: 'error'
+      });
+    }
+  };
+
+  const openAttachmentModal = (record: EvidenceRecord) => {
+    const initialAssessmentId = record.assessmentLinks[0]?.assessmentId ?? '';
+    const initialControls = initialAssessmentId
+      ? record.assessmentLinks
+          .filter((link) => link.assessmentId === initialAssessmentId)
+          .map((link) => link.assessmentControlId)
+      : [];
+
+    setAttachmentDraft({
+      evidence: record,
+      assessmentId: initialAssessmentId,
+      controlIds: initialControls
+    });
+    attachmentModal.onOpen();
+  };
+
+  const handleAttachmentAssessmentChange = (assessmentId: string) => {
+    const existing = attachmentDraft.evidence?.assessmentLinks
+      .filter((link) => link.assessmentId === assessmentId)
+      .map((link) => link.assessmentControlId) ?? [];
+
+    setAttachmentDraft((prev) => ({
+      ...prev,
+      assessmentId,
+      controlIds: existing
+    }));
+  };
+
+  const handleAttachmentSubmit = async () => {
+    if (!attachmentDraft.evidence || !attachmentDraft.assessmentId) {
+      toast({ title: 'Select an assessment to attach evidence', status: 'warning' });
+      return;
+    }
+
+    const preservedIds = attachmentDraft.evidence.assessmentLinks
+      .filter((link) => link.assessmentId !== attachmentDraft.assessmentId)
+      .map((link) => link.assessmentControlId);
+
+    const nextIds = Array.from(new Set([...preservedIds, ...attachmentDraft.controlIds]));
+
+    try {
+      await updateLinks.mutateAsync({
+        id: attachmentDraft.evidence.id,
+        assessmentControlIds: nextIds
+      });
+      toast({ title: 'Attachments updated', status: 'success' });
+      setAttachmentDraft({
+        evidence: null,
+        assessmentId: '',
+        controlIds: []
+      });
+      attachmentModal.onClose();
+    } catch (error) {
+      toast({
+        title: 'Failed to update attachments',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        status: 'error'
+      });
+    }
+  };
+
+  const handleAttachmentClose = () => {
+    if (updateLinks.isPending) {
+      return;
+    }
+    setAttachmentDraft({
+      evidence: null,
+      assessmentId: '',
+      controlIds: []
+    });
+    attachmentModal.onClose();
+  };
+
+  const openMetadataModal = (record: EvidenceRecord) => {
+    const metadata = record.metadata ?? {};
+    const tags = Array.isArray(metadata.tags) ? (metadata.tags as string[]).join(', ') : '';
+    const categories = Array.isArray(metadata.categories)
+      ? (metadata.categories as string[]).join(', ')
+      : '';
+    const notes = typeof metadata.notes === 'string' ? (metadata.notes as string) : '';
+    const source = typeof metadata.source === 'string' ? (metadata.source as string) : '';
+
+    setMetadataDraft({
+      evidence: record,
+      name: record.name,
+      nextAction: record.nextAction ?? '',
+      notes,
+      tags,
+      categories,
+      source
+    });
+    metadataModal.onOpen();
+  };
+
+  const handleMetadataSubmit = async () => {
+    if (!metadataDraft.evidence) {
+      return;
+    }
+
+    try {
+      await updateMetadata.mutateAsync({
+        id: metadataDraft.evidence.id,
+        payload: {
+          name: metadataDraft.name.trim(),
+          nextAction: metadataDraft.nextAction,
+          notes: metadataDraft.notes,
+          tags: splitCsv(metadataDraft.tags),
+          categories: splitCsv(metadataDraft.categories),
+          source: metadataDraft.source
+        }
+      });
+      toast({ title: 'Metadata updated', status: 'success' });
+      setMetadataDraft({
+        evidence: null,
+        name: '',
+        nextAction: '',
+        notes: '',
+        tags: '',
+        categories: '',
+        source: ''
+      });
+      metadataModal.onClose();
+    } catch (error) {
+      toast({
+        title: 'Failed to update metadata',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        status: 'error'
+      });
+    }
+  };
+
+  const handleMetadataClose = () => {
+    if (updateMetadata.isPending) {
+      return;
+    }
+    setMetadataDraft({
+      evidence: null,
+      name: '',
+      nextAction: '',
+      notes: '',
+      tags: '',
+      categories: '',
+      source: ''
+    });
+    metadataModal.onClose();
   };
 
   return (
@@ -210,7 +567,7 @@ const EvidencePage = () => {
         <Button
           leftIcon={<Icon as={FiUpload} />}
           colorScheme="brand"
-          onClick={onOpen}
+          onClick={uploadModal.onOpen}
           isLoading={uploadEvidence.isPending}
         >
           Upload Evidence
@@ -219,10 +576,10 @@ const EvidencePage = () => {
 
       <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
         <Stat
-          bg={useColorModeValue('white', 'gray.800')}
+          bg={cardBg}
           borderRadius="lg"
           borderWidth="1px"
-          borderColor={useColorModeValue('gray.200', 'gray.700')}
+          borderColor={cardBorder}
           p={4}
         >
           <StatLabel>Total Items</StatLabel>
@@ -230,10 +587,10 @@ const EvidencePage = () => {
           <StatHelpText>Across all frameworks</StatHelpText>
         </Stat>
         <Stat
-          bg={useColorModeValue('white', 'gray.800')}
+          bg={cardBg}
           borderRadius="lg"
           borderWidth="1px"
-          borderColor={useColorModeValue('gray.200', 'gray.700')}
+          borderColor={cardBorder}
           p={4}
         >
           <StatLabel>Pending Review</StatLabel>
@@ -241,10 +598,10 @@ const EvidencePage = () => {
           <StatHelpText>Awaiting assignment</StatHelpText>
         </Stat>
         <Stat
-          bg={useColorModeValue('white', 'gray.800')}
+          bg={cardBg}
           borderRadius="lg"
           borderWidth="1px"
-          borderColor={useColorModeValue('gray.200', 'gray.700')}
+          borderColor={cardBorder}
           p={4}
         >
           <StatLabel>Approved</StatLabel>
@@ -259,7 +616,7 @@ const EvidencePage = () => {
         align={{ base: 'stretch', md: 'center' }}
       >
         <Input
-          placeholder="Search by evidence, control, or framework..."
+          placeholder="Search evidence, control, or assessment..."
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           maxW={{ base: '100%', md: '320px' }}
@@ -291,9 +648,9 @@ const EvidencePage = () => {
               key={item.id}
               borderWidth="1px"
               borderRadius="lg"
-              borderColor={useColorModeValue('gray.200', 'gray.700')}
+              borderColor={cardBorder}
               p={5}
-              bg={useColorModeValue('white', 'gray.800')}
+              bg={cardBg}
               display="flex"
               flexDirection="column"
               gap={3}
@@ -307,7 +664,49 @@ const EvidencePage = () => {
                       {item.uploadedBy?.name ?? 'Unknown'}
                     </Text>
                   </VStack>
-                  <Badge colorScheme={meta.color}>{meta.label}</Badge>
+                  <HStack spacing={2}>
+                    <Menu>
+                      <MenuButton
+                        as={IconButton}
+                        aria-label="Manage evidence"
+                        icon={<FiMoreVertical />}
+                        size="sm"
+                        variant="ghost"
+                      />
+                      <MenuList>
+                        <MenuOptionGroup
+                          title="Set status"
+                          type="radio"
+                          defaultValue={item.status}
+                          onChange={(value) =>
+                            handleStatusChange(item, value as EvidenceStatus)
+                          }
+                        >
+                          {Object.entries(statusMeta).map(([status, statusInfo]) => (
+                            <MenuItemOption key={status} value={status}>
+                              {statusInfo.label}
+                            </MenuItemOption>
+                          ))}
+                        </MenuOptionGroup>
+                        <MenuDivider />
+                        <MenuItem icon={<FiLink />} onClick={() => openAttachmentModal(item)}>
+                          Attach to assessment
+                        </MenuItem>
+                        <MenuItem icon={<FiEdit />} onClick={() => openMetadataModal(item)}>
+                          Edit metadata
+                        </MenuItem>
+                        <MenuDivider />
+                        <MenuItem
+                          icon={<FiTrash2 />}
+                          onClick={() => handleDeleteEvidence(item)}
+                          color="red.500"
+                        >
+                          Delete evidence
+                        </MenuItem>
+                      </MenuList>
+                    </Menu>
+                    <Badge colorScheme={meta.color}>{meta.label}</Badge>
+                  </HStack>
                 </HStack>
                 <HStack spacing={2} flexWrap="wrap">
                   <Tag size="sm" colorScheme="blue">
@@ -334,13 +733,36 @@ const EvidencePage = () => {
                     </Tag>
                   ))}
                 </HStack>
+                {item.assessmentLinks.length > 0 && (
+                  <Wrap spacing={2}>
+                    {item.assessmentLinks.map((link) => (
+                      <WrapItem key={link.assessmentControlId}>
+                        <Tag size="sm" colorScheme="teal" borderRadius="full">
+                          <TagLabel>
+                            {link.assessmentName}: {link.controlId}
+                          </TagLabel>
+                          <Tooltip label="Remove attachment">
+                            <TagRightIcon
+                              as={FiX}
+                              cursor="pointer"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleDetachLink(item, link.assessmentControlId);
+                              }}
+                            />
+                          </Tooltip>
+                        </Tag>
+                      </WrapItem>
+                    ))}
+                  </Wrap>
+                )}
                 {item.nextAction && (
                   <Box
-                    bg={useColorModeValue('gray.100', 'gray.700')}
+                    bg={noteBg}
                     borderRadius="md"
                     p={3}
                     fontSize="sm"
-                    color="gray.300"
+                    color={noteText}
                   >
                     {item.nextAction}
                   </Box>
@@ -360,8 +782,14 @@ const EvidencePage = () => {
                   <Button leftIcon={<FiEye />}>Preview</Button>
                   <Button leftIcon={<FiDownload />}>Download</Button>
                 </ButtonGroup>
-                <Button size="sm" variant="outline" colorScheme="brand">
-                  Request Review
+                <Button
+                  size="sm"
+                  variant="outline"
+                  colorScheme="brand"
+                  leftIcon={<FiPlus />}
+                  onClick={() => openAttachmentModal(item)}
+                >
+                  Manage links
                 </Button>
               </HStack>
             </Box>
@@ -369,7 +797,7 @@ const EvidencePage = () => {
         })}
       </SimpleGrid>
 
-      <Modal isOpen={isOpen} onClose={handleClose} size="lg">
+      <Modal isOpen={uploadModal.isOpen} onClose={handleUploadClose} size="lg">
         <ModalOverlay />
         <ModalContent>
           <ModalHeader>Upload Evidence</ModalHeader>
@@ -380,29 +808,54 @@ const EvidencePage = () => {
                 <FormLabel>Evidence name</FormLabel>
                 <Input
                   value={formState.name}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, name: event.target.value }))}
+                  onChange={(event) =>
+                    setFormState((prev) => ({ ...prev, name: event.target.value }))
+                  }
                   placeholder="Access control attestation"
                 />
               </FormControl>
               <FormControl isRequired>
                 <FormLabel>Evidence file</FormLabel>
+                <Box
+                  borderWidth="2px"
+                  borderStyle="dashed"
+                  borderColor={isDragging ? dropActiveBorder : dropBorder}
+                  borderRadius="md"
+                  p={6}
+                  textAlign="center"
+                  cursor="pointer"
+                  onClick={openFileDialog}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
+                  <VStack spacing={2}>
+                    <Icon as={FiUpload} boxSize={6} color="brand.500" />
+                    <Text fontSize="sm" color="gray.500">
+                      {formState.file
+                        ? formState.file.name
+                        : 'Drag and drop a file, or click to browse'}
+                    </Text>
+                    <Text fontSize="xs" color="gray.500">
+                      Files upload via signed signed URLs and remain in secure storage.
+                    </Text>
+                  </VStack>
+                </Box>
                 <Input
+                  ref={fileInputRef}
                   type="file"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0] ?? null;
-                    setFormState((prev) => ({ ...prev, file }));
-                  }}
+                  display="none"
+                  onChange={handleFileInputChange}
                 />
-                <FormHelperText>
-                  Files upload via signed PUT URLs and remain in secure storage.
-                </FormHelperText>
                 {uploadEvidence.isPending && <Progress value={uploadProgress} size="xs" mt={2} />}
               </FormControl>
               <FormControl>
                 <FormLabel>Linked controls</FormLabel>
                 <Input
                   value={formState.controlIds}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, controlIds: event.target.value }))}
+                  onChange={(event) =>
+                    setFormState((prev) => ({ ...prev, controlIds: event.target.value }))
+                  }
                   placeholder="ac-2, ac-17"
                 />
               </FormControl>
@@ -410,7 +863,12 @@ const EvidencePage = () => {
                 <FormLabel>Frameworks</FormLabel>
                 <CheckboxGroup
                   value={formState.frameworkIds}
-                  onChange={(values) => setFormState((prev) => ({ ...prev, frameworkIds: values as string[] }))}
+                  onChange={(values) =>
+                    setFormState((prev) => ({
+                      ...prev,
+                      frameworkIds: values as string[]
+                    }))
+                  }
                 >
                   <Stack spacing={2} direction={{ base: 'column', md: 'row' }} flexWrap="wrap">
                     {frameworks.map((framework) => (
@@ -421,6 +879,60 @@ const EvidencePage = () => {
                   </Stack>
                 </CheckboxGroup>
               </FormControl>
+              <FormControl>
+                <FormLabel>Attach to assessment</FormLabel>
+                <Select
+                  placeholder="Optional"
+                  value={formState.assessmentId}
+                  onChange={(event) =>
+                    setFormState((prev) => ({
+                      ...prev,
+                      assessmentId: event.target.value,
+                      assessmentControlIds: []
+                    }))
+                  }
+                >
+                  {assessments.map((assessment) => (
+                    <option key={assessment.id} value={assessment.id}>
+                      {assessment.name}
+                    </option>
+                  ))}
+                </Select>
+                <FormHelperText>
+                  Automatically link this evidence to selected assessment controls.
+                </FormHelperText>
+              </FormControl>
+              {formState.assessmentId && (
+                <FormControl>
+                  <FormLabel>Select controls</FormLabel>
+                  {isUploadControlsLoading ? (
+                    <Spinner size="sm" />
+                  ) : (
+                    <CheckboxGroup
+                      value={formState.assessmentControlIds}
+                      onChange={(values) =>
+                        setFormState((prev) => ({
+                          ...prev,
+                          assessmentControlIds: values as string[]
+                        }))
+                      }
+                    >
+                      <Stack spacing={2} maxH="180px" overflowY="auto">
+                        {uploadAssessmentControls.map((control) => (
+                          <Checkbox key={control.id} value={control.id}>
+                            {control.controlId} · {control.title}
+                          </Checkbox>
+                        ))}
+                        {uploadAssessmentControls.length === 0 && (
+                          <Text fontSize="xs" color="gray.500">
+                            No controls available for this assessment.
+                          </Text>
+                        )}
+                      </Stack>
+                    </CheckboxGroup>
+                  )}
+                </FormControl>
+              )}
               <FormControl>
                 <FormLabel>Retention (days)</FormLabel>
                 <Input
@@ -439,7 +951,9 @@ const EvidencePage = () => {
                 <FormLabel>Retention reason</FormLabel>
                 <Input
                   value={formState.retentionReason}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, retentionReason: event.target.value }))}
+                  onChange={(event) =>
+                    setFormState((prev) => ({ ...prev, retentionReason: event.target.value }))
+                  }
                   placeholder="FedRAMP documentation retention"
                 />
               </FormControl>
@@ -449,7 +963,9 @@ const EvidencePage = () => {
                   <Input
                     type="date"
                     value={formState.reviewDue}
-                    onChange={(event) => setFormState((prev) => ({ ...prev, reviewDue: event.target.value }))}
+                    onChange={(event) =>
+                      setFormState((prev) => ({ ...prev, reviewDue: event.target.value }))
+                    }
                   />
                 </FormControl>
                 <FormControl>
@@ -457,7 +973,9 @@ const EvidencePage = () => {
                   <Input
                     placeholder="Reviewer ID"
                     value={formState.reviewerId}
-                    onChange={(event) => setFormState((prev) => ({ ...prev, reviewerId: event.target.value }))}
+                    onChange={(event) =>
+                      setFormState((prev) => ({ ...prev, reviewerId: event.target.value }))
+                    }
                   />
                 </FormControl>
               </HStack>
@@ -465,7 +983,9 @@ const EvidencePage = () => {
                 <FormLabel>Tags (comma separated)</FormLabel>
                 <Input
                   value={formState.tags}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, tags: event.target.value }))}
+                  onChange={(event) =>
+                    setFormState((prev) => ({ ...prev, tags: event.target.value }))
+                  }
                   placeholder="access-control, quarterly"
                 />
               </FormControl>
@@ -473,7 +993,9 @@ const EvidencePage = () => {
                 <FormLabel>Categories (comma separated)</FormLabel>
                 <Input
                   value={formState.categories}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, categories: event.target.value }))}
+                  onChange={(event) =>
+                    setFormState((prev) => ({ ...prev, categories: event.target.value }))
+                  }
                   placeholder="policy, procedure"
                 />
               </FormControl>
@@ -481,15 +1003,29 @@ const EvidencePage = () => {
                 <FormLabel>Next action</FormLabel>
                 <Input
                   value={formState.nextAction}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, nextAction: event.target.value }))}
+                  onChange={(event) =>
+                    setFormState((prev) => ({ ...prev, nextAction: event.target.value }))
+                  }
                   placeholder="Assign reviewer"
+                />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Source</FormLabel>
+                <Input
+                  value={formState.source}
+                  onChange={(event) =>
+                    setFormState((prev) => ({ ...prev, source: event.target.value }))
+                  }
+                  placeholder="manual"
                 />
               </FormControl>
               <FormControl>
                 <FormLabel>Notes</FormLabel>
                 <Textarea
                   value={formState.notes}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, notes: event.target.value }))}
+                  onChange={(event) =>
+                    setFormState((prev) => ({ ...prev, notes: event.target.value }))
+                  }
                   placeholder="Provide context for reviewers"
                 />
               </FormControl>
@@ -497,7 +1033,7 @@ const EvidencePage = () => {
           </ModalBody>
           <ModalFooter>
             <HStack spacing={3}>
-              <Button variant="ghost" onClick={handleClose} isDisabled={uploadEvidence.isPending}>
+              <Button variant="ghost" onClick={handleUploadClose} isDisabled={uploadEvidence.isPending}>
                 Cancel
               </Button>
               <Button
@@ -507,6 +1043,165 @@ const EvidencePage = () => {
                 isDisabled={!formState.file}
               >
                 Save evidence
+              </Button>
+            </HStack>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      <Modal isOpen={attachmentModal.isOpen} onClose={handleAttachmentClose} size="lg">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Manage assessment attachments</ModalHeader>
+          <ModalCloseButton disabled={updateLinks.isPending} />
+          <ModalBody>
+            <Stack spacing={4}>
+              <FormControl isRequired>
+                <FormLabel>Assessment</FormLabel>
+                <Select
+                  placeholder="Select assessment"
+                  value={attachmentDraft.assessmentId}
+                  onChange={(event) => handleAttachmentAssessmentChange(event.target.value)}
+                >
+                  {assessments.map((assessment) => (
+                    <option key={assessment.id} value={assessment.id}>
+                      {assessment.name}
+                    </option>
+                  ))}
+                </Select>
+              </FormControl>
+              {attachmentDraft.assessmentId && (
+                <FormControl>
+                  <FormLabel>Controls</FormLabel>
+                  {isAttachmentControlsLoading ? (
+                    <Spinner size="sm" />
+                  ) : (
+                    <CheckboxGroup
+                      value={attachmentDraft.controlIds}
+                      onChange={(values) =>
+                        setAttachmentDraft((prev) => ({
+                          ...prev,
+                          controlIds: values as string[]
+                        }))
+                      }
+                    >
+                      <Stack spacing={2} maxH="220px" overflowY="auto">
+                        {attachmentControls.map((control) => (
+                          <Checkbox key={control.id} value={control.id}>
+                            {control.controlId} · {control.title}
+                          </Checkbox>
+                        ))}
+                        {attachmentControls.length === 0 && (
+                          <Text fontSize="xs" color="gray.500">
+                            No controls available for this assessment.
+                          </Text>
+                        )}
+                      </Stack>
+                    </CheckboxGroup>
+                  )}
+                </FormControl>
+              )}
+              <FormHelperText>
+                Selecting controls replaces existing attachments for the chosen assessment.
+              </FormHelperText>
+            </Stack>
+          </ModalBody>
+          <ModalFooter>
+            <HStack spacing={3}>
+              <Button variant="ghost" onClick={handleAttachmentClose} isDisabled={updateLinks.isPending}>
+                Cancel
+              </Button>
+              <Button
+                colorScheme="brand"
+                onClick={handleAttachmentSubmit}
+                isLoading={updateLinks.isPending}
+                isDisabled={!attachmentDraft.assessmentId}
+              >
+                Save attachments
+              </Button>
+            </HStack>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      <Modal isOpen={metadataModal.isOpen} onClose={handleMetadataClose} size="lg">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Edit evidence metadata</ModalHeader>
+          <ModalCloseButton disabled={updateMetadata.isPending} />
+          <ModalBody>
+            <Stack spacing={4}>
+              <FormControl>
+                <FormLabel>Name</FormLabel>
+                <Input
+                  value={metadataDraft.name}
+                  onChange={(event) =>
+                    setMetadataDraft((prev) => ({ ...prev, name: event.target.value }))
+                  }
+                />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Next action</FormLabel>
+                <Input
+                  value={metadataDraft.nextAction}
+                  onChange={(event) =>
+                    setMetadataDraft((prev) => ({ ...prev, nextAction: event.target.value }))
+                  }
+                />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Notes</FormLabel>
+                <Textarea
+                  value={metadataDraft.notes}
+                  onChange={(event) =>
+                    setMetadataDraft((prev) => ({ ...prev, notes: event.target.value }))
+                  }
+                />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Tags</FormLabel>
+                <Input
+                  value={metadataDraft.tags}
+                  onChange={(event) =>
+                    setMetadataDraft((prev) => ({ ...prev, tags: event.target.value }))
+                  }
+                  placeholder="policy, quarterly"
+                />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Categories</FormLabel>
+                <Input
+                  value={metadataDraft.categories}
+                  onChange={(event) =>
+                    setMetadataDraft((prev) => ({ ...prev, categories: event.target.value }))
+                  }
+                  placeholder="procedure, evidence"
+                />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Source</FormLabel>
+                <Input
+                  value={metadataDraft.source}
+                  onChange={(event) =>
+                    setMetadataDraft((prev) => ({ ...prev, source: event.target.value }))
+                  }
+                  placeholder="manual"
+                />
+              </FormControl>
+            </Stack>
+          </ModalBody>
+          <ModalFooter>
+            <HStack spacing={3}>
+              <Button variant="ghost" onClick={handleMetadataClose} isDisabled={updateMetadata.isPending}>
+                Cancel
+              </Button>
+              <Button
+                colorScheme="brand"
+                onClick={handleMetadataSubmit}
+                isLoading={updateMetadata.isPending}
+                isDisabled={!metadataDraft.evidence}
+              >
+                Save metadata
               </Button>
             </HStack>
           </ModalFooter>

@@ -1,12 +1,12 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import Handlebars from 'handlebars';
-import { AssessmentRecord } from '@compliance/shared';
+import { AssessmentSummary } from '@compliance/shared';
 
 const TEMPLATE_PATH = path.resolve(process.cwd(), 'apps/worker/templates/assessment-report.hbs');
 
 interface ReportTemplateContext {
-  assessment: AssessmentRecord;
+  assessment: AssessmentSummary;
   generatedAt: string;
   generatedBy: string;
   bucket: string;

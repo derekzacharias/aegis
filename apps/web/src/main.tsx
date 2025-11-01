@@ -6,6 +6,7 @@ import { BrowserRouter } from 'react-router-dom';
 import theme from './theme';
 import App from './app';
 import { AuthProvider } from './auth/auth-context';
+import { ProfileProvider } from './profile/profile-context';
 import { PolicyActorProvider } from './policies/policy-actor-context';
 
 const container = document.getElementById('root');
@@ -23,9 +24,11 @@ createRoot(container).render(
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <AuthProvider>
-            <PolicyActorProvider>
-              <App />
-            </PolicyActorProvider>
+            <ProfileProvider>
+              <PolicyActorProvider>
+                <App />
+              </PolicyActorProvider>
+            </ProfileProvider>
           </AuthProvider>
         </BrowserRouter>
       </QueryClientProvider>

@@ -45,8 +45,12 @@ describe('AuthProvider', () => {
           email: 'analyst@example.com',
           firstName: 'Analyst',
           lastName: 'User',
+          jobTitle: 'Security Analyst',
+          timezone: 'America/New_York',
           role: 'ANALYST',
-          organizationId: 'org-1'
+          organizationId: 'org-1',
+          createdAt: '2024-01-01T00:00:00.000Z',
+          updatedAt: '2024-01-01T00:00:00.000Z'
         },
         tokens: {
           accessToken: 'token-123',
@@ -73,7 +77,9 @@ describe('AuthProvider', () => {
           id: 'user-1',
           email: 'analyst@example.com',
           role: 'ANALYST',
-          organizationId: 'org-1'
+          organizationId: 'org-1',
+          createdAt: '2024-01-01T00:00:00.000Z',
+          updatedAt: '2024-01-01T00:00:00.000Z'
         },
         tokens: {
           accessToken: 'token-123',

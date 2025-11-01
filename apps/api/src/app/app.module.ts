@@ -15,6 +15,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SchedulerModule } from '../scheduler/scheduler.module';
 import { PolicyModule } from '../policy/policy.module';
+import { UserModule } from '../user/user.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { PolicyModule } from '../policy/policy.module';
     }),
     PrismaModule,
     AuthModule,
+    UserModule,
     FrameworkModule,
     DashboardModule,
     AssessmentModule,

@@ -14,6 +14,13 @@
 - Seeds controls and supports crosswalk mappings (modelled via `ControlMapping`).
 - API: `GET /api/frameworks`.
 
+#### Crosswalk Explorer
+- API: `GET /api/frameworks/:id/crosswalk` accepts `targetFrameworkId`, `minConfidence`, `search`, `status`, `page`, and `pageSize` query params. Returns paginated matches with confidence scoring, provenance (SEED/ALGO/MANUAL), evidence hints, and applied filters.
+- API: `POST /api/frameworks/:id/crosswalk` upserts manual mappings (confidence, rationale, optional evidence reuse hints) and invalidates cached explorer state.
+- UI: React/Vite page at `/frameworks/:frameworkId/crosswalk` supports search, framework switching, match-type filtering, pagination, and CSV/JSON export. State is URL-driven to allow sharing filtered views.
+- Data: Prisma seed (`apps/api/prisma/seed.ts`) now provisions representative controls and crosswalk mappings for every shipped framework (NIST SP 800-53, NIST CSF, CIS v8, PCI DSS) so development builds surface meaningful results.
+- Limitations: suggestion engine relies on token similarity, so relevance degrades for sparse control descriptions; exports reflect the currently loaded page; pagination caps at 100 rows per request.
+
 ### Assessments
 - `AssessmentProject` with statuses Draft/In-Progress/Complete.
 - Many-to-many relation to frameworks via `AssessmentFramework`.
@@ -35,6 +42,11 @@
 - API: `POST /api/reports` queues a job, `GET /api/reports` lists job status, `GET /api/reports/:id` returns metadata, and `GET /api/reports/:id/download` streams the rendered PDF (RBAC protected).
 - Worker consumes the `report.generate` queue, renders Handlebars templates, and exports PDFs with Puppeteer (stored under `tmp/reports/` until object storage integration).
 
+### User Profiles
+- Prisma-backed `User` records capture contact metadata (first/last name, job title, phone number, timezone, avatar URL, bio) plus audit trails in `UserProfileAudit`.
+- API: `/api/users/me` (fetch/update), `/api/users/me/password`, `/api/users/me/audits`, and `/api/users/:id/role` for admin-led role changes. All endpoints are guarded by JWT + RBAC.
+- Frontend: Settings → Profile presents editable Chakra forms with optimistic updates; audit history is sourced from the new audit table.
+
 ## Data Storage
 
 - **PostgreSQL** – Primary relational store managed via Prisma. Schema defined in `apps/api/prisma/schema.prisma`.
@@ -45,7 +57,8 @@
 
 - Request validation via Nest `ValidationPipe` with class-validator.
 - Helmet, CSRF (cookie-based) and cookie parser configured globally.
-- JWT auth (future): placeholder secrets captured in config.
+- JWT auth with refresh tokens (`AUTH_ACCESS_TOKEN_TTL`, `AUTH_REFRESH_TOKEN_TTL`) and profile hydration on login.
+- Profile changes and password rotations create immutable audit entries, ensuring administrators can trace role or contact updates.
 - FedRAMP compliance features: audit trail, customer-managed keys, deployment preferences captured in settings UI.
 
 ## Deployment Strategy

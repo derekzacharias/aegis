@@ -26,7 +26,12 @@ export class ReportingController {
     @Body() payload: CreateReportDto,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<ReportJobView> {
-    return this.reportingService.queueReport(payload.assessmentId, payload.formats, user.email);
+    return this.reportingService.queueReport(
+      user.organizationId,
+      payload.assessmentId,
+      payload.formats,
+      user.email
+    );
   }
 
   @Get()
