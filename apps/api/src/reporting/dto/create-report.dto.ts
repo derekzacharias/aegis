@@ -1,4 +1,5 @@
 import { ArrayNotEmpty, IsArray, IsIn, IsString } from 'class-validator';
+import { ReportFormat } from '@compliance/shared';
 
 export class CreateReportDto {
   @IsString()
@@ -7,5 +8,5 @@ export class CreateReportDto {
   @IsArray()
   @ArrayNotEmpty()
   @IsIn(['html', 'pdf'], { each: true })
-  formats!: Array<'html' | 'pdf'>;
+  formats!: ReportFormat[];
 }

@@ -1,6 +1,7 @@
 import {
   Avatar,
   Box,
+  Button,
   Flex,
   HStack,
   IconButton,
@@ -9,13 +10,52 @@ import {
   InputLeftElement,
   Text,
   useColorMode,
-  useColorModeValue
+  useColorModeValue,
+  useToast
 } from '@chakra-ui/react';
-import { FiBell, FiMoon, FiSearch, FiSun } from 'react-icons/fi';
+import { FiBell, FiLogOut, FiMoon, FiSearch, FiSun } from 'react-icons/fi';
+import { useMemo } from 'react';
+import useAuth from '../hooks/use-auth';
 
 const AppHeader = () => {
   const { colorMode, toggleColorMode } = useColorMode();
   const bg = useColorModeValue('white', 'gray.900');
+  const toast = useToast();
+  const { user, logout } = useAuth();
+
+  const displayName = useMemo(() => {
+    if (!user) {
+      return 'Session';
+    }
+
+    if (user.firstName || user.lastName) {
+      return [user.firstName, user.lastName].filter(Boolean).join(' ');
+    }
+
+    return user.email;
+  }, [user]);
+
+  const roleLabel = useMemo(() => {
+    if (!user) {
+      return 'Authenticated';
+    }
+
+    return user.role
+      .toLowerCase()
+      .split('_')
+      .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+      .join(' ');
+  }, [user]);
+
+  const handleLogout = async () => {
+    await logout();
+    toast({
+      title: 'Signed out',
+      status: 'info',
+      duration: 2500,
+      isClosable: true
+    });
+  };
 
   return (
     <Flex
@@ -45,14 +85,22 @@ const AppHeader = () => {
         />
         <IconButton aria-label="Notifications" icon={<FiBell />} variant="ghost" />
         <HStack spacing={3}>
-          <Avatar size="sm" name="Jordan Compliance" />
+          <Avatar size="sm" name={displayName} />
           <Box textAlign="left">
-            <Text fontWeight="bold">Jordan Compliance</Text>
+            <Text fontWeight="bold">{displayName}</Text>
             <Text fontSize="sm" color="gray.500">
-              FedRAMP Program Lead
+              {roleLabel}
             </Text>
           </Box>
         </HStack>
+        <Button
+          leftIcon={<FiLogOut />}
+          variant="ghost"
+          onClick={handleLogout}
+          size="sm"
+        >
+          Sign out
+        </Button>
       </HStack>
     </Flex>
   );

@@ -13,6 +13,7 @@ import {
   FiCheckSquare,
   FiFileText,
   FiFolder,
+  FiShield,
   FiSettings
 } from 'react-icons/fi';
 import { NavLink, useLocation } from 'react-router-dom';
@@ -28,6 +29,7 @@ const navItems: NavItem[] = [
   { label: 'Frameworks', icon: FiBookOpen, path: '/frameworks' },
   { label: 'Assessments', icon: FiCheckSquare, path: '/assessments' },
   { label: 'Evidence', icon: FiFolder, path: '/evidence' },
+  { label: 'Policies', icon: FiShield, path: '/policies' },
   { label: 'Reports', icon: FiFileText, path: '/reports' },
   { label: 'Settings', icon: FiSettings, path: '/settings' }
 ];

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>{{assessment.name}} – Compliance Report</title>
+    <style>
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        margin: 0;
+        padding: 24px;
+        color: #1f2933;
+        background: #ffffff;
+      }
+      header {
+        border-bottom: 2px solid #1a7cff;
+        margin-bottom: 24px;
+        padding-bottom: 12px;
+      }
+      h1 {
+        margin: 0 0 8px 0;
+        font-size: 28px;
+      }
+      h2 {
+        margin-top: 24px;
+        font-size: 20px;
+        color: #1a7cff;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 12px;
+      }
+      th,
+      td {
+        border: 1px solid #cbd2d9;
+        padding: 8px 12px;
+        text-align: left;
+      }
+      th {
+        background: #f1f5f9;
+      }
+      section {
+        margin-bottom: 32px;
+      }
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 16px;
+        margin-top: 12px;
+      }
+      .summary-card {
+        border: 1px solid #e4ebf5;
+        border-radius: 8px;
+        padding: 16px;
+        background: #f9fbff;
+      }
+      .summary-card h3 {
+        margin: 0 0 8px 0;
+        font-size: 14px;
+        text-transform: uppercase;
+        color: #64748b;
+      }
+      footer {
+        border-top: 1px solid #cbd2d9;
+        padding-top: 16px;
+        font-size: 12px;
+        color: #52606d;
+      }
+      ul {
+        margin: 8px 0 0 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>{{assessment.name}}</h1>
+      <p>Status: <strong>{{uppercase assessment.status}}</strong></p>
+      <p>Generated at {{formatDate generatedAt}} by {{generatedBy}}</p>
+    </header>
+
+    <section>
+      <h2>Assessment Overview</h2>
+      <div class="summary-grid">
+        <div class="summary-card">
+          <h3>Owner</h3>
+          <p>{{assessment.owner}}</p>
+        </div>
+        <div class="summary-card">
+          <h3>Created</h3>
+          <p>{{formatDate assessment.createdAt}}</p>
+        </div>
+        <div class="summary-card">
+          <h3>Last Updated</h3>
+          <p>{{formatDate assessment.updatedAt}}</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Framework Coverage</h2>
+      <ul>
+        {{#each frameworks}}
+          <li>{{this}}</li>
+        {{/each}}
+      </ul>
+    </section>
+
+    <section>
+      <h2>Progress Snapshot</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th>Count</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Satisfied Controls</td>
+            <td>{{progress.satisfied}}</td>
+          </tr>
+          <tr>
+            <td>Partially Satisfied</td>
+            <td>{{progress.partial}}</td>
+          </tr>
+          <tr>
+            <td>Unsatisfied</td>
+            <td>{{progress.unsatisfied}}</td>
+          </tr>
+          <tr>
+            <td>Total Controls</td>
+            <td>{{progress.total}}</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer>
+      <p>
+        Generated for internal compliance review. Storage bucket:
+        {{bucket}}
+      </p>
+    </footer>
+  </body>
+</html>

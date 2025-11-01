@@ -6,6 +6,7 @@ import {
   Checkbox,
   CheckboxGroup,
   FormControl,
+  FormHelperText,
   FormLabel,
   Heading,
   HStack,
@@ -18,7 +19,7 @@ import {
   ModalFooter,
   ModalHeader,
   ModalOverlay,
-  Select,
+  Progress,
   SimpleGrid,
   Stack,
   Stat,
@@ -27,78 +28,84 @@ import {
   StatNumber,
   Tag,
   Text,
+  Textarea,
   VStack,
   useColorModeValue,
   useDisclosure,
   useToast
 } from '@chakra-ui/react';
+import { EvidenceStatus } from '@compliance/shared';
+import { useEffect, useMemo, useState } from 'react';
 import { FiDownload, FiEye, FiUpload } from 'react-icons/fi';
-import { useMemo, useState } from 'react';
-import { useCreateEvidence, useEvidence } from '../hooks/use-evidence';
+import { useEvidence, useEvidenceUpload } from '../hooks/use-evidence';
 import { useFrameworks } from '../hooks/use-frameworks';
 
-const statusMeta: Record<
-  'pending' | 'approved' | 'archived',
-  { label: string; color: string }
-> = {
-  pending: { label: 'Pending review', color: 'yellow' },
-  approved: { label: 'Approved', color: 'green' },
-  archived: { label: 'Archived', color: 'gray' }
+const statusMeta: Record<EvidenceStatus, { label: string; color: string }> = {
+  PENDING: { label: 'Pending review', color: 'yellow' },
+  APPROVED: { label: 'Approved', color: 'green' },
+  ARCHIVED: { label: 'Archived', color: 'gray' },
+  QUARANTINED: { label: 'Quarantined', color: 'red' }
 };
 
-const formatSize = (kb: number) => {
-  if (kb >= 1024 * 1024) {
-    return `${(kb / (1024 * 1024)).toFixed(1)} GB`;
+const formatSize = (bytes: number) => {
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   }
-  if (kb >= 1024) {
-    return `${(kb / 1024).toFixed(1)} MB`;
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
-  return `${kb.toFixed(0)} KB`;
+  if (bytes >= 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${bytes.toFixed(0)} B`;
 };
 
 const EvidencePage = () => {
   const toast = useToast();
   const { isOpen, onOpen, onClose } = useDisclosure();
-  const { data: evidence } = useEvidence();
-  const createEvidence = useCreateEvidence();
-  const { data: frameworks } = useFrameworks();
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'archived'>('all');
+  const { data: evidence = [] } = useEvidence();
+  const { data: frameworks = [] } = useFrameworks();
+  const uploadEvidence = useEvidenceUpload();
+  const [statusFilter, setStatusFilter] = useState<'all' | EvidenceStatus>('all');
   const [search, setSearch] = useState('');
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [formState, setFormState] = useState({
     name: '',
     controlIds: '',
     frameworkIds: [] as string[],
-    uploadedBy: '',
-    status: 'pending' as 'pending' | 'approved' | 'archived',
-    fileType: 'pdf',
-    sizeInKb: 1024
+    retentionPeriodDays: 365,
+    retentionReason: '',
+    reviewDue: '',
+    reviewerId: '',
+    tags: '',
+    categories: '',
+    notes: '',
+    nextAction: '',
+    file: null as File | null
   });
 
-  const resolveFrameworks = (ids: string[]) =>
-    ids
-      .map((id) => frameworks?.find((fw) => fw.id === id)?.name ?? id)
-      .filter(Boolean);
+  useEffect(() => {
+    if (!isOpen) {
+      setUploadProgress(0);
+    }
+  }, [isOpen]);
 
   const stats = useMemo(() => {
     const counts = {
-      total: evidence?.length ?? 0,
-      pending: evidence?.filter((item) => item.status === 'pending').length ?? 0,
-      approved: evidence?.filter((item) => item.status === 'approved').length ?? 0,
-      archived: evidence?.filter((item) => item.status === 'archived').length ?? 0
+      total: evidence.length,
+      pending: evidence.filter((item) => item.status === 'PENDING').length,
+      approved: evidence.filter((item) => item.status === 'APPROVED').length,
+      archived: evidence.filter((item) => item.status === 'ARCHIVED').length
     };
     return counts;
   }, [evidence]);
 
   const filteredEvidence = useMemo(() => {
-    if (!evidence) {
-      return [];
-    }
-
     const term = search.trim().toLowerCase();
 
     return evidence.filter((item) => {
       const matchesStatus = statusFilter === 'all' || item.status === statusFilter;
-      const frameworkNames = resolveFrameworks(item.frameworkIds).join(' ').toLowerCase();
+      const frameworkNames = item.frameworks.map((framework) => framework.name).join(' ').toLowerCase();
       const matchesSearch =
         !term ||
         item.name.toLowerCase().includes(term) ||
@@ -107,7 +114,33 @@ const EvidencePage = () => {
 
       return matchesStatus && matchesSearch;
     });
-  }, [evidence, statusFilter, search, frameworks]);
+  }, [evidence, statusFilter, search]);
+
+  const resetForm = () => {
+    setFormState({
+      name: '',
+      controlIds: '',
+      frameworkIds: [],
+      retentionPeriodDays: 365,
+      retentionReason: '',
+      reviewDue: '',
+      reviewerId: '',
+      tags: '',
+      categories: '',
+      notes: '',
+      nextAction: '',
+      file: null
+    });
+    setUploadProgress(0);
+  };
+
+  const handleClose = () => {
+    if (uploadEvidence.isPending) {
+      return;
+    }
+    resetForm();
+    onClose();
+  };
 
   const handleSubmit = async () => {
     if (!formState.name.trim()) {
@@ -120,29 +153,41 @@ const EvidencePage = () => {
       return;
     }
 
+    if (!formState.file) {
+      toast({ title: 'Select a file to upload', status: 'warning' });
+      return;
+    }
+
     try {
-      await createEvidence.mutateAsync({
+      setUploadProgress(0);
+      await uploadEvidence.mutateAsync({
+        file: formState.file,
         name: formState.name.trim(),
+        frameworkIds: formState.frameworkIds,
         controlIds: formState.controlIds
           .split(',')
           .map((value) => value.trim())
           .filter(Boolean),
-        frameworkIds: formState.frameworkIds,
-        uploadedBy: formState.uploadedBy || 'unknown@example.com',
-        status: formState.status,
-        fileType: formState.fileType,
-        sizeInKb: formState.sizeInKb
+        retentionPeriodDays: formState.retentionPeriodDays || undefined,
+        retentionReason: formState.retentionReason || undefined,
+        reviewDue: formState.reviewDue || undefined,
+        reviewerId: formState.reviewerId || undefined,
+        notes: formState.notes || undefined,
+        tags: formState.tags
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean),
+        categories: formState.categories
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean),
+        nextAction: formState.nextAction || undefined,
+        statusNote: 'Uploaded via console',
+        onProgress: setUploadProgress
       });
+
       toast({ title: 'Evidence uploaded', status: 'success' });
-      setFormState({
-        name: '',
-        controlIds: '',
-        frameworkIds: [],
-        uploadedBy: '',
-        status: 'pending',
-        fileType: 'pdf',
-        sizeInKb: 1024
-      });
+      resetForm();
       onClose();
     } catch (error) {
       toast({
@@ -155,32 +200,64 @@ const EvidencePage = () => {
 
   return (
     <VStack align="stretch" spacing={6}>
-      <HStack justify="space-between" align={{ base: 'stretch', md: 'center' }} flexDir={{ base: 'column', md: 'row' }} gap={4}>
+      <HStack
+        justify="space-between"
+        align={{ base: 'stretch', md: 'center' }}
+        flexDir={{ base: 'column', md: 'row' }}
+        gap={4}
+      >
         <Heading size="lg">Evidence Vault</Heading>
-        <Button leftIcon={<Icon as={FiUpload} />} colorScheme="brand" onClick={onOpen} isLoading={createEvidence.isPending}>
+        <Button
+          leftIcon={<Icon as={FiUpload} />}
+          colorScheme="brand"
+          onClick={onOpen}
+          isLoading={uploadEvidence.isPending}
+        >
           Upload Evidence
         </Button>
       </HStack>
 
       <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
-        <Stat bg={useColorModeValue('white', 'gray.800')} borderRadius="lg" borderWidth="1px" borderColor={useColorModeValue('gray.200', 'gray.700')} p={4}>
+        <Stat
+          bg={useColorModeValue('white', 'gray.800')}
+          borderRadius="lg"
+          borderWidth="1px"
+          borderColor={useColorModeValue('gray.200', 'gray.700')}
+          p={4}
+        >
           <StatLabel>Total Items</StatLabel>
           <StatNumber>{stats.total}</StatNumber>
           <StatHelpText>Across all frameworks</StatHelpText>
         </Stat>
-        <Stat bg={useColorModeValue('white', 'gray.800')} borderRadius="lg" borderWidth="1px" borderColor={useColorModeValue('gray.200', 'gray.700')} p={4}>
+        <Stat
+          bg={useColorModeValue('white', 'gray.800')}
+          borderRadius="lg"
+          borderWidth="1px"
+          borderColor={useColorModeValue('gray.200', 'gray.700')}
+          p={4}
+        >
           <StatLabel>Pending Review</StatLabel>
           <StatNumber>{stats.pending}</StatNumber>
           <StatHelpText>Awaiting assignment</StatHelpText>
         </Stat>
-        <Stat bg={useColorModeValue('white', 'gray.800')} borderRadius="lg" borderWidth="1px" borderColor={useColorModeValue('gray.200', 'gray.700')} p={4}>
+        <Stat
+          bg={useColorModeValue('white', 'gray.800')}
+          borderRadius="lg"
+          borderWidth="1px"
+          borderColor={useColorModeValue('gray.200', 'gray.700')}
+          p={4}
+        >
           <StatLabel>Approved</StatLabel>
           <StatNumber>{stats.approved}</StatNumber>
           <StatHelpText>Ready for audit</StatHelpText>
         </Stat>
       </SimpleGrid>
 
-      <Stack direction={{ base: 'column', md: 'row' }} spacing={4} align={{ base: 'stretch', md: 'center' }}>
+      <Stack
+        direction={{ base: 'column', md: 'row' }}
+        spacing={4}
+        align={{ base: 'stretch', md: 'center' }}
+      >
         <Input
           placeholder="Search by evidence, control, or framework..."
           value={search}
@@ -188,8 +265,9 @@ const EvidencePage = () => {
           maxW={{ base: '100%', md: '320px' }}
         />
         <ButtonGroup size="sm" isAttached>
-          {['all', 'pending', 'approved', 'archived'].map((status) => {
-            const label = status === 'all' ? 'All' : statusMeta[status as keyof typeof statusMeta].label;
+          {['all', 'PENDING', 'APPROVED', 'ARCHIVED', 'QUARANTINED'].map((status) => {
+            const isAll = status === 'all';
+            const label = isAll ? 'All' : statusMeta[status as EvidenceStatus].label;
             const isActive = statusFilter === status;
             return (
               <Button
@@ -208,7 +286,6 @@ const EvidencePage = () => {
       <SimpleGrid columns={{ base: 1, md: 2, xl: 3 }} spacing={5}>
         {filteredEvidence.map((item) => {
           const meta = statusMeta[item.status];
-          const frameworksResolved = resolveFrameworks(item.frameworkIds);
           return (
             <Box
               key={item.id}
@@ -226,40 +303,56 @@ const EvidencePage = () => {
                   <VStack align="start" spacing={1} flex="1">
                     <Heading size="sm">{item.name}</Heading>
                     <Text fontSize="xs" color="gray.500">
-                      Uploaded {new Date(item.uploadedAt).toLocaleString()} by {item.uploadedBy}
+                      Uploaded {new Date(item.uploadedAt).toLocaleString()} by{' '}
+                      {item.uploadedBy?.name ?? 'Unknown'}
                     </Text>
                   </VStack>
                   <Badge colorScheme={meta.color}>{meta.label}</Badge>
                 </HStack>
                 <HStack spacing={2} flexWrap="wrap">
                   <Tag size="sm" colorScheme="blue">
-                    {item.fileType.toUpperCase()} · {formatSize(item.sizeInKb)}
+                    {item.contentType.toUpperCase()} · {formatSize(item.fileSize)}
+                  </Tag>
+                  <Tag size="sm" colorScheme="purple">
+                    Ingestion: {item.ingestionStatus}
                   </Tag>
                   {item.reviewDue && (
-                    <Tag size="sm" colorScheme="purple">
+                    <Tag size="sm" colorScheme="teal">
                       Review by {new Date(item.reviewDue).toLocaleDateString()}
                     </Tag>
                   )}
-                  {item.lastReviewed && (
-                    <Tag size="sm" colorScheme="gray">
-                      Last reviewed {new Date(item.lastReviewed).toLocaleDateString()}
-                    </Tag>
-                  )}
                 </HStack>
-                <Text fontSize="sm" color="gray.400">
-                  Controls: {item.controlIds.join(', ')}
-                </Text>
+                {item.controlIds.length > 0 && (
+                  <Text fontSize="sm" color="gray.400">
+                    Controls: {item.controlIds.join(', ')}
+                  </Text>
+                )}
                 <HStack spacing={2} flexWrap="wrap">
-                  {frameworksResolved.map((framework) => (
-                    <Tag key={framework} size="sm" variant="subtle" colorScheme="brand">
-                      {framework}
+                  {item.frameworks.map((framework) => (
+                    <Tag key={framework.id} size="sm" variant="subtle" colorScheme="brand">
+                      {framework.name}
                     </Tag>
                   ))}
                 </HStack>
                 {item.nextAction && (
-                  <Box bg={useColorModeValue('gray.100', 'gray.700')} borderRadius="md" p={3} fontSize="sm" color="gray.300">
+                  <Box
+                    bg={useColorModeValue('gray.100', 'gray.700')}
+                    borderRadius="md"
+                    p={3}
+                    fontSize="sm"
+                    color="gray.300"
+                  >
                     {item.nextAction}
                   </Box>
+                )}
+                {item.retention.periodDays && (
+                  <Text fontSize="xs" color="gray.500">
+                    Retention: {item.retention.periodDays} days
+                    {item.retention.expiresAt
+                      ? ` · Expires ${new Date(item.retention.expiresAt).toLocaleDateString()}`
+                      : ''}
+                    {item.retention.reason ? ` · ${item.retention.reason}` : ''}
+                  </Text>
                 )}
               </VStack>
               <HStack justify="space-between">
@@ -276,11 +369,11 @@ const EvidencePage = () => {
         })}
       </SimpleGrid>
 
-      <Modal isOpen={isOpen} onClose={onClose} size="lg">
+      <Modal isOpen={isOpen} onClose={handleClose} size="lg">
         <ModalOverlay />
         <ModalContent>
           <ModalHeader>Upload Evidence</ModalHeader>
-          <ModalCloseButton disabled={createEvidence.isPending} />
+          <ModalCloseButton disabled={uploadEvidence.isPending} />
           <ModalBody>
             <Stack spacing={4}>
               <FormControl isRequired>
@@ -290,6 +383,20 @@ const EvidencePage = () => {
                   onChange={(event) => setFormState((prev) => ({ ...prev, name: event.target.value }))}
                   placeholder="Access control attestation"
                 />
+              </FormControl>
+              <FormControl isRequired>
+                <FormLabel>Evidence file</FormLabel>
+                <Input
+                  type="file"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] ?? null;
+                    setFormState((prev) => ({ ...prev, file }));
+                  }}
+                />
+                <FormHelperText>
+                  Files upload via signed PUT URLs and remain in secure storage.
+                </FormHelperText>
+                {uploadEvidence.isPending && <Progress value={uploadProgress} size="xs" mt={2} />}
               </FormControl>
               <FormControl>
                 <FormLabel>Linked controls</FormLabel>
@@ -306,7 +413,7 @@ const EvidencePage = () => {
                   onChange={(values) => setFormState((prev) => ({ ...prev, frameworkIds: values as string[] }))}
                 >
                   <Stack spacing={2} direction={{ base: 'column', md: 'row' }} flexWrap="wrap">
-                    {frameworks?.map((framework) => (
+                    {frameworks.map((framework) => (
                       <Checkbox key={framework.id} value={framework.id}>
                         {framework.name}
                       </Checkbox>
@@ -315,59 +422,90 @@ const EvidencePage = () => {
                 </CheckboxGroup>
               </FormControl>
               <FormControl>
-                <FormLabel>Uploaded by</FormLabel>
+                <FormLabel>Retention (days)</FormLabel>
                 <Input
-                  value={formState.uploadedBy}
-                  onChange={(event) => setFormState((prev) => ({ ...prev, uploadedBy: event.target.value }))}
-                  placeholder="analyst@example.com"
+                  type="number"
+                  min={0}
+                  value={formState.retentionPeriodDays}
+                  onChange={(event) =>
+                    setFormState((prev) => ({
+                      ...prev,
+                      retentionPeriodDays: Number(event.target.value) || 0
+                    }))
+                  }
                 />
               </FormControl>
-              <HStack spacing={4} align="flex-start">
+              <FormControl>
+                <FormLabel>Retention reason</FormLabel>
+                <Input
+                  value={formState.retentionReason}
+                  onChange={(event) => setFormState((prev) => ({ ...prev, retentionReason: event.target.value }))}
+                  placeholder="FedRAMP documentation retention"
+                />
+              </FormControl>
+              <HStack spacing={4} align="flex-start" flexWrap="wrap">
                 <FormControl>
-                  <FormLabel>Status</FormLabel>
-                  <Select
-                    value={formState.status}
-                    onChange={(event) =>
-                      setFormState((prev) => ({ ...prev, status: event.target.value as typeof prev.status }))
-                    }
-                  >
-                    <option value="pending">Pending review</option>
-                    <option value="approved">Approved</option>
-                    <option value="archived">Archived</option>
-                  </Select>
-                </FormControl>
-                <FormControl>
-                  <FormLabel>File type</FormLabel>
-                  <Select
-                    value={formState.fileType}
-                    onChange={(event) => setFormState((prev) => ({ ...prev, fileType: event.target.value }))}
-                  >
-                    <option value="pdf">PDF</option>
-                    <option value="docx">DOCX</option>
-                    <option value="csv">CSV</option>
-                    <option value="xlsx">XLSX</option>
-                  </Select>
-                </FormControl>
-                <FormControl>
-                  <FormLabel>Size (KB)</FormLabel>
+                  <FormLabel>Review due</FormLabel>
                   <Input
-                    type="number"
-                    min={1}
-                    value={formState.sizeInKb}
-                    onChange={(event) =>
-                      setFormState((prev) => ({ ...prev, sizeInKb: Number(event.target.value) || prev.sizeInKb }))
-                    }
+                    type="date"
+                    value={formState.reviewDue}
+                    onChange={(event) => setFormState((prev) => ({ ...prev, reviewDue: event.target.value }))}
+                  />
+                </FormControl>
+                <FormControl>
+                  <FormLabel>Assign reviewer</FormLabel>
+                  <Input
+                    placeholder="Reviewer ID"
+                    value={formState.reviewerId}
+                    onChange={(event) => setFormState((prev) => ({ ...prev, reviewerId: event.target.value }))}
                   />
                 </FormControl>
               </HStack>
+              <FormControl>
+                <FormLabel>Tags (comma separated)</FormLabel>
+                <Input
+                  value={formState.tags}
+                  onChange={(event) => setFormState((prev) => ({ ...prev, tags: event.target.value }))}
+                  placeholder="access-control, quarterly"
+                />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Categories (comma separated)</FormLabel>
+                <Input
+                  value={formState.categories}
+                  onChange={(event) => setFormState((prev) => ({ ...prev, categories: event.target.value }))}
+                  placeholder="policy, procedure"
+                />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Next action</FormLabel>
+                <Input
+                  value={formState.nextAction}
+                  onChange={(event) => setFormState((prev) => ({ ...prev, nextAction: event.target.value }))}
+                  placeholder="Assign reviewer"
+                />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Notes</FormLabel>
+                <Textarea
+                  value={formState.notes}
+                  onChange={(event) => setFormState((prev) => ({ ...prev, notes: event.target.value }))}
+                  placeholder="Provide context for reviewers"
+                />
+              </FormControl>
             </Stack>
           </ModalBody>
           <ModalFooter>
             <HStack spacing={3}>
-              <Button variant="ghost" onClick={onClose} isDisabled={createEvidence.isPending}>
+              <Button variant="ghost" onClick={handleClose} isDisabled={uploadEvidence.isPending}>
                 Cancel
               </Button>
-              <Button colorScheme="brand" onClick={handleSubmit} isLoading={createEvidence.isPending}>
+              <Button
+                colorScheme="brand"
+                onClick={handleSubmit}
+                isLoading={uploadEvidence.isPending}
+                isDisabled={!formState.file}
+              >
                 Save evidence
               </Button>
             </HStack>

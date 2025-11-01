@@ -17,7 +17,9 @@ import { FiArrowDownRight, FiArrowRight, FiArrowUpRight } from 'react-icons/fi';
 import ComplianceGauge from '../widgets/compliance-gauge';
 import RiskHeatmap from '../widgets/risk-heatmap';
 import UpcomingActivities from '../widgets/upcoming-activities';
+import UpcomingSchedules from '../widgets/upcoming-schedules';
 import { useDashboardOverview } from '../hooks/use-dashboard';
+import { useSchedules } from '../hooks/use-schedules';
 import { useMemo } from 'react';
 
 const trendIconMap = {
@@ -28,6 +30,7 @@ const trendIconMap = {
 
 const DashboardPage = () => {
   const { data, isFetching } = useDashboardOverview();
+  const { data: schedules = [] } = useSchedules();
 
   const stats = useMemo(() => data?.stats ?? [], [data]);
 
@@ -79,7 +82,16 @@ const DashboardPage = () => {
         </GridItem>
       </Grid>
 
-      {data && <UpcomingActivities activities={data.activities} />}
+      {data && (
+        <Grid templateColumns={{ base: '1fr', xl: '1fr 1fr' }} gap={6} alignItems="stretch">
+          <GridItem>
+            <UpcomingActivities activities={data.activities} />
+          </GridItem>
+          <GridItem>
+            <UpcomingSchedules schedules={schedules} />
+          </GridItem>
+        </Grid>
+      )}
       {isFetching && (
         <Text fontSize="sm" color="gray.500">
           Refreshing metrics…

@@ -20,6 +20,7 @@
       "@compliance/api/*": ["apps/api/src/*"],
       "@compliance/web/*": ["apps/web/src/*"],
       "@compliance/worker/*": ["apps/worker/src/*"],
+      "@compliance/shared": ["libs/shared/src/index.ts"],
       "@compliance/shared/*": ["libs/shared/src/*"]
     }
   },

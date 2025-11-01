@@ -91,15 +91,25 @@ const FrameworksPage = () => {
                   {framework.controlCount} controls
                 </Text>
               </HStack>
-              <Button
-                as={RouterLink}
-                to={`/frameworks/${framework.id}/catalog`}
-                variant="outline"
-                colorScheme="brand"
-                size="sm"
-              >
-                Explore Control Catalog
-              </Button>
+              <HStack spacing={3} justify="flex-end">
+                <Button
+                  as={RouterLink}
+                  to={`/frameworks/${framework.id}/crosswalk`}
+                  colorScheme="brand"
+                  size="sm"
+                >
+                  Crosswalk Explorer
+                </Button>
+                <Button
+                  as={RouterLink}
+                  to={`/frameworks/${framework.id}/catalog`}
+                  variant="outline"
+                  colorScheme="brand"
+                  size="sm"
+                >
+                  Explore Control Catalog
+                </Button>
+              </HStack>
             </Stack>
           </Box>
         ))}

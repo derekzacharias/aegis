@@ -10,7 +10,8 @@ const otherFrameworkControls: ControlDefinition[] = [
     title: 'Establish and Maintain a Vulnerability Management Process',
     description:
       'Establish and maintain a documented vulnerability management program that includes scanning, reporting, and remediation.',
-    priority: 'P2'
+    priority: 'P2',
+    keywords: ['vulnerability', 'scanning', 'remediation', 'patching', 'reporting']
   },
   {
     id: 'pci-8-2-6',
@@ -19,7 +20,8 @@ const otherFrameworkControls: ControlDefinition[] = [
     family: 'Identification and Authentication',
     title: 'User Authentication Processes and Procedures',
     description: 'Ensure strong authentication policies are implemented for user access to cardholder data.',
-    priority: 'P0'
+    priority: 'P0',
+    keywords: ['authentication', 'password', 'access control', 'identity verification']
   }
 ];
 

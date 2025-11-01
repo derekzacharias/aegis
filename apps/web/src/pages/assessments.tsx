@@ -1,10 +1,15 @@
 import {
+  Alert,
+  AlertDescription,
+  AlertIcon,
+  AlertTitle,
   Badge,
   Box,
   Button,
   ButtonGroup,
   Checkbox,
   CheckboxGroup,
+  Divider,
   FormControl,
   FormLabel,
   Heading,
@@ -24,6 +29,7 @@ import {
   ModalHeader,
   ModalOverlay,
   SimpleGrid,
+  Spinner,
   Stack,
   Text,
   VStack,
@@ -38,6 +44,7 @@ import {
   useCreateAssessment,
   useUpdateAssessmentStatus
 } from '../hooks/use-assessments';
+import { useAssessmentEvidenceReuse } from '../hooks/use-assessment-evidence-reuse';
 import type { AssessmentSummary } from '../hooks/use-assessments';
 import { useFrameworks } from '../hooks/use-frameworks';
 
@@ -55,7 +62,8 @@ const statusOptions: Array<'draft' | 'in-progress' | 'complete'> = [
 
 const AssessmentsPage = () => {
   const toast = useToast();
-  const { isOpen, onOpen, onClose } = useDisclosure();
+  const createModal = useDisclosure();
+  const evidenceModal = useDisclosure();
   const { data: assessments } = useAssessments();
   const { data: frameworks } = useFrameworks();
   const createAssessment = useCreateAssessment();
@@ -72,6 +80,19 @@ const AssessmentsPage = () => {
     owner: '',
     frameworkIds: []
   });
+  const [selectedAssessment, setSelectedAssessment] = useState<AssessmentSummary | null>(null);
+
+  const {
+    data: evidenceReuse,
+    isLoading: isEvidenceLoading,
+    isError: isEvidenceError,
+    error: evidenceError
+  } = useAssessmentEvidenceReuse(selectedAssessment?.id, evidenceModal.isOpen);
+
+  const cardBorderColor = useColorModeValue('gray.200', 'gray.700');
+  const cardBackground = useColorModeValue('white', 'gray.800');
+  const suggestionBorderColor = useColorModeValue('gray.200', 'gray.700');
+  const evidenceSuggestions = evidenceReuse ?? [];
 
   const resolveFramework = (id: string) => frameworks?.find((fw) => fw.id === id)?.name ?? id;
 
@@ -147,7 +168,17 @@ const AssessmentsPage = () => {
 
   const handleCloseModal = () => {
     resetForm();
-    onClose();
+    createModal.onClose();
+  };
+
+  const handleEvidenceModalOpen = (assessment: AssessmentSummary) => {
+    setSelectedAssessment(assessment);
+    evidenceModal.onOpen();
+  };
+
+  const handleEvidenceModalClose = () => {
+    evidenceModal.onClose();
+    setSelectedAssessment(null);
   };
 
   const handleCreateAssessment = async (event: FormEvent<HTMLFormElement>) => {
@@ -226,7 +257,7 @@ const AssessmentsPage = () => {
           <Button
             rightIcon={<Icon as={FiArrowRight} />}
             colorScheme="brand"
-            onClick={onOpen}
+            onClick={createModal.onOpen}
             isDisabled={createAssessment.isPending}
           >
             Launch Assessment
@@ -264,9 +295,9 @@ const AssessmentsPage = () => {
               key={assessment.id}
               borderWidth="1px"
               borderRadius="lg"
-              borderColor={useColorModeValue('gray.200', 'gray.700')}
+              borderColor={cardBorderColor}
               p={5}
-              bg={useColorModeValue('white', 'gray.800')}
+              bg={cardBackground}
             >
               <VStack align="stretch" spacing={3}>
                 <HStack justify="space-between" align="start">
@@ -313,16 +344,26 @@ const AssessmentsPage = () => {
                   </Text>
                   {renderProgress(assessment.progress)}
                 </VStack>
-                <Button variant="outline" size="sm" colorScheme="brand">
-                  Open Workspace
-                </Button>
+                <HStack spacing={3} pt={1} flexWrap="wrap">
+                  <Button variant="outline" size="sm" colorScheme="brand">
+                    Open Workspace
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    colorScheme="purple"
+                    onClick={() => handleEvidenceModalOpen(assessment)}
+                  >
+                    Evidence suggestions
+                  </Button>
+                </HStack>
               </VStack>
             </Box>
           ))}
         </SimpleGrid>
       </VStack>
 
-      <Modal isOpen={isOpen} onClose={handleCloseModal} size="lg">
+      <Modal isOpen={createModal.isOpen} onClose={handleCloseModal} size="lg">
         <ModalOverlay />
         <ModalContent as="form" onSubmit={handleCreateAssessment}>
           <ModalHeader>Launch New Assessment</ModalHeader>
@@ -392,6 +433,144 @@ const AssessmentsPage = () => {
                 Create assessment
               </Button>
             </HStack>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      <Modal isOpen={evidenceModal.isOpen} onClose={handleEvidenceModalClose} size="4xl">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>
+            Evidence reuse suggestions
+            {selectedAssessment ? ` • ${selectedAssessment.name}` : ''}
+          </ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            {isEvidenceLoading ? (
+              <HStack spacing={3} py={4}>
+                <Spinner />
+                <Text>Loading evidence recommendations…</Text>
+              </HStack>
+            ) : null}
+
+            {isEvidenceError ? (
+              <Alert status="error" borderRadius="md" mb={4}>
+                <AlertIcon />
+                <Box>
+                  <AlertTitle>Unable to fetch recommendations</AlertTitle>
+                  <AlertDescription>
+                    {evidenceError instanceof Error
+                      ? evidenceError.message
+                      : 'Unexpected error retrieving evidence suggestions.'}
+                  </AlertDescription>
+                </Box>
+              </Alert>
+            ) : null}
+
+            {!isEvidenceLoading && !isEvidenceError ? (
+              evidenceSuggestions.length ? (
+                <Stack spacing={4}>
+                  {evidenceSuggestions.map((recommendation) => (
+                      <Box
+                        key={`${recommendation.mappingId}:${recommendation.hint.id}`}
+                        borderWidth="1px"
+                        borderRadius="lg"
+                        borderColor={suggestionBorderColor}
+                        p={4}
+                      >
+                        <VStack align="stretch" spacing={3}>
+                          <HStack justify="space-between" align={{ base: 'stretch', md: 'center' }}>
+                            <VStack align="start" spacing={0} flex="1">
+                              <Text fontWeight="semibold">{recommendation.evidence.name}</Text>
+                              <Text fontSize="sm" color="gray.500">
+                                Uploaded {new Date(recommendation.evidence.uploadedAt).toLocaleDateString()}
+                              </Text>
+                            </VStack>
+                            <VStack align="end" spacing={1} minW={{ base: 'auto', md: '140px' }}>
+                              <Badge colorScheme="green" textTransform="capitalize">
+                                {recommendation.evidence.status.toLowerCase()}
+                              </Badge>
+                              <Badge colorScheme="blue">
+                                Confidence {Math.round(recommendation.confidence * 100)}%
+                              </Badge>
+                              <Badge variant="subtle" colorScheme="purple">
+                                Origin {recommendation.mappingOrigin.toLowerCase()}
+                              </Badge>
+                            </VStack>
+                          </HStack>
+
+                          <Divider />
+
+                          <Stack spacing={1}>
+                            <Text fontSize="sm" fontWeight="medium">
+                              Mapping
+                            </Text>
+                            <Text fontSize="sm" color="gray.500">
+                              {recommendation.sourceControl.id} → {recommendation.targetControl.id}
+                            </Text>
+                            <Text fontSize="sm" color="gray.500">
+                              {recommendation.sourceControl.title}
+                            </Text>
+                            <Text fontSize="sm" color="gray.500">
+                              {recommendation.targetControl.title}
+                            </Text>
+                          </Stack>
+
+                          <Stack spacing={1}>
+                            <Text fontSize="sm" fontWeight="medium">
+                              Evidence hint
+                            </Text>
+                            <Text fontSize="sm">{recommendation.hint.summary}</Text>
+                            {recommendation.hint.rationale ? (
+                              <Text fontSize="xs" color="gray.500">
+                                {recommendation.hint.rationale}
+                              </Text>
+                            ) : null}
+                          </Stack>
+
+                          <Stack direction="row" spacing={2} flexWrap="wrap">
+                            {recommendation.tags.map((tag) => (
+                              <Badge key={tag} colorScheme="purple" variant="subtle">
+                                {tag}
+                              </Badge>
+                            ))}
+                            <Badge colorScheme="teal" variant="subtle">
+                              Hint score {Math.round(recommendation.hint.score * 100)}%
+                            </Badge>
+                          </Stack>
+
+                          <Stack spacing={1}>
+                            <Text fontSize="sm" fontWeight="medium">
+                              Framework coverage
+                            </Text>
+                            <HStack spacing={2} flexWrap="wrap">
+                              {recommendation.evidence.frameworks.map((framework) => (
+                                <Badge key={framework.id} variant="outline">
+                                  {framework.name} ({framework.version})
+                                </Badge>
+                              ))}
+                            </HStack>
+                          </Stack>
+
+                          <Text fontSize="xs" color="gray.400">
+                            Storage URI: {recommendation.evidence.uri}
+                          </Text>
+                        </VStack>
+                      </Box>
+                  ))}
+                </Stack>
+              ) : (
+                <Text fontSize="sm" color="gray.500">
+                  No evidence reuse recommendations yet. Accept crosswalk mappings or attach
+                  evidence hints to surface reuse candidates.
+                </Text>
+              )
+            ) : null}
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="ghost" onClick={handleEvidenceModalClose}>
+              Close
+            </Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

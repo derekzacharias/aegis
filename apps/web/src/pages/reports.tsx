@@ -15,18 +15,20 @@ import {
 } from '@chakra-ui/react';
 import { useState } from 'react';
 import { FiDownloadCloud, FiRefreshCcw } from 'react-icons/fi';
-import { useCreateReport, useReportJobs, ReportJob } from '../hooks/use-reports';
+import { useCreateReport, useReportJobs } from '../hooks/use-reports';
+import type { ReportJobView } from '@compliance/shared';
 import { useAssessments } from '../hooks/use-assessments';
 
-const statusBadge: Record<ReportJob['status'], { label: string; color: string }> = {
+const statusBadge: Record<ReportJobView['status'], { label: string; color: string }> = {
   queued: { label: 'Queued', color: 'yellow' },
   processing: { label: 'Generating', color: 'blue' },
-  completed: { label: 'Ready', color: 'green' }
+  completed: { label: 'Ready', color: 'green' },
+  failed: { label: 'Failed', color: 'red' }
 };
 
 const ReportsPage = () => {
   const toast = useToast();
-  const [queuedJob, setQueuedJob] = useState<ReportJob | null>(null);
+  const [queuedJob, setQueuedJob] = useState<ReportJobView | null>(null);
   const createReport = useCreateReport();
   const { data: assessments } = useAssessments();
   const {
@@ -112,8 +114,13 @@ const ReportsPage = () => {
               <VStack align="start" spacing={1}>
                 <Heading size="sm">Assessment {job.assessmentId}</Heading>
                 <Text fontSize="sm" color="gray.400">
-                  Requested {new Date(job.createdAt).toLocaleString()}
+                  Requested {new Date(job.createdAt).toLocaleString()} by {job.requestedBy}
                 </Text>
+                {job.error && (
+                  <Text fontSize="sm" color="red.400">
+                    Error: {job.error}
+                  </Text>
+                )}
                 <HStack spacing={2}>
                   {job.formats.map((format) => (
                     <Tag key={`${job.jobId}-${format}`} size="sm" colorScheme="purple">
@@ -128,7 +135,7 @@ const ReportsPage = () => {
                   variant="outline"
                   leftIcon={<Icon as={FiDownloadCloud} />}
                   size="sm"
-                  isDisabled={!job.downloadUrl}
+                  isDisabled={!job.downloadUrl || job.status !== 'completed'}
                   onClick={() => {
                     if (job.downloadUrl) {
                       if (typeof window !== 'undefined') {

@@ -31,8 +31,9 @@
 - Worker will process outbound synchronization jobs (issue creation/update).
 
 ### Reporting
-- Report service queues jobs for HTML/PDF export (backed by worker).
-- API: `POST /api/reports` returns queued job metadata.
+- Report service enqueues jobs for HTML/PDF export via a shared in-memory queue (BullMQ/Redis pluggable in future).
+- API: `POST /api/reports` queues a job, `GET /api/reports` lists job status, `GET /api/reports/:id` returns metadata, and `GET /api/reports/:id/download` streams the rendered PDF (RBAC protected).
+- Worker consumes the `report.generate` queue, renders Handlebars templates, and exports PDFs with Puppeteer (stored under `tmp/reports/` until object storage integration).
 
 ## Data Storage
 

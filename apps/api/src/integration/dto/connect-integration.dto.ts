@@ -1,5 +1,5 @@
-import { IsIn, IsString, IsUrl } from 'class-validator';
-import { INTEGRATION_PROVIDERS, IntegrationProvider } from '../integration.service';
+import { IsArray, IsIn, IsOptional, IsString, IsUrl } from 'class-validator';
+import { INTEGRATION_PROVIDERS, IntegrationProvider } from '../integration.types';
 
 export class ConnectIntegrationDto {
   @IsIn(INTEGRATION_PROVIDERS)
@@ -15,4 +15,9 @@ export class ConnectIntegrationDto {
 
   @IsString()
   clientSecret!: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  scopes?: string[];
 }

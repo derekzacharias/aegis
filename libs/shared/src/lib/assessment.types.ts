@@ -1,5 +1,12 @@
 export type AssessmentStatus = 'draft' | 'in-progress' | 'complete';
 
+export interface AssessmentProgress {
+  satisfied: number;
+  partial: number;
+  unsatisfied: number;
+  total: number;
+}
+
 export interface AssessmentSummary {
   id: string;
   name: string;
@@ -8,6 +15,7 @@ export interface AssessmentSummary {
   owner: string;
   createdAt: string;
   updatedAt: string;
+  progress: AssessmentProgress;
 }
 
 export interface AssessmentControl {

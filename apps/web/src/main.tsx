@@ -5,6 +5,8 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import theme from './theme';
 import App from './app';
+import { AuthProvider } from './auth/auth-context';
+import { PolicyActorProvider } from './policies/policy-actor-context';
 
 const container = document.getElementById('root');
 
@@ -20,7 +22,11 @@ createRoot(container).render(
     <ChakraProvider theme={theme}>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-          <App />
+          <AuthProvider>
+            <PolicyActorProvider>
+              <App />
+            </PolicyActorProvider>
+          </AuthProvider>
         </BrowserRouter>
       </QueryClientProvider>
     </ChakraProvider>

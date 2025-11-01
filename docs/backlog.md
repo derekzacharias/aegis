@@ -5,13 +5,13 @@
 2. **Persist Assessments/Evidence** – Replace fallback stores with Prisma CRUD operations and add migrations/testing.
 3. **Evidence Upload Pipeline** – Pre-signed URL issuance, file metadata capture, retention policies, and reviewer workflow.
 4. **Report Rendering** – Integrate Puppeteer in worker to render HTML templates and produce FedRAMP-ready PDFs; add storage handling.
-5. **Integration Webhooks** – Complete Jira/ServiceNow connectors with OAuth, webhook ingestion, and mapping configuration.
+5. **Integration Webhooks** – Complete Jira/ServiceNow connectors with OAuth, webhook ingestion, and mapping configuration. _(See `docs/integrations.md` for setup notes.)_
 6. **Unit & E2E Tests** – Add Jest and Playwright coverage for critical flows (framework browsing, assessment creation, report queueing).
 7. **Dockerized Deployments** – Create Dockerfiles for services, add Docker Compose orchestration, and document container-based rollout.
 
 ## Mid-term
 1. **Control Crosswalk Engine** – Compute mappings between frameworks, suggest evidence reuse, expose API and UI visualizations.
-2. **Continuous Monitoring Scheduler** – Cron-based jobs for evidence review reminders, recurring assessments, and agent health checks.
+2. **Continuous Monitoring Scheduler** – ✅ Initial worker + API skeleton live with in-memory schedules and UI controls; upgrade to Prisma persistence and notification integrations next.
 3. **Policy/Procedure Management** – Versioned document storage, approval workflow, and audit export.
 4. **FedRAMP Package Builder** – Generate SSP, SAP, SAR skeletons using stored data.
 5. **Infrastructure-as-Code Artifacts** – Helm charts, Terraform modules for SaaS/self-hosted deployments with compliance hardening.

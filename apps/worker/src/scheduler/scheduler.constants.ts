@@ -1,0 +1,2 @@
+export const SCHEDULE_STORE = Symbol('SCHEDULE_STORE');
+export const SCHEDULE_HANDLERS = Symbol('SCHEDULE_HANDLERS');
