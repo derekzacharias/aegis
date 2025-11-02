@@ -59,23 +59,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [state, setState] = useState<AuthState>(initialState);
   const [authError, setAuthError] = useState<string | null>(null);
   const refreshPromiseRef = useRef<Promise<AuthResponse> | null>(null);
+  const sessionRef = useRef<AuthResponse | null>(null);
 
   const clearAuthError = useCallback(() => setAuthError(null), []);
 
-  const persistSession = useCallback((session: AuthResponse) => {
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(storageKey, JSON.stringify(session));
-    }
+  const persistSession = useCallback(
+    (session: AuthResponse) => {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(storageKey, JSON.stringify(session));
+      }
 
-    setState({ session, isLoading: false });
-    clearAuthError();
-  }, [clearAuthError]);
+      sessionRef.current = session;
+      setState({ session, isLoading: false });
+      clearAuthError();
+    },
+    [clearAuthError]
+  );
 
   const clearSession = useCallback(() => {
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem(storageKey);
     }
 
+    sessionRef.current = null;
     setState({ session: undefined, isLoading: false });
     clearAuthError();
   }, [clearAuthError]);
@@ -115,6 +121,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const stored = readStoredSession();
 
     if (stored?.tokens?.accessToken) {
+      sessionRef.current = stored;
       setState({ session: stored, isLoading: true });
       void validateSession({ accessToken: stored.tokens.accessToken });
     } else {
@@ -128,7 +135,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [validateSession]);
 
   const refreshSession = useCallback(async (): Promise<AuthResponse> => {
-    const refreshToken = state.session?.tokens.refreshToken;
+    const refreshToken = sessionRef.current?.tokens.refreshToken;
 
     if (!refreshToken) {
       throw new Error('No refresh token available');
@@ -153,11 +160,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
 
     return refreshPromiseRef.current;
-  }, [clearSession, persistSession, state.session?.tokens.refreshToken]);
+  }, [clearSession, persistSession]);
 
   useEffect(() => {
     const requestId = apiClient.interceptors.request.use((config) => {
-      const accessToken = state.session?.tokens.accessToken;
+      const accessToken = sessionRef.current?.tokens.accessToken;
       if (accessToken) {
         config.headers = config.headers ?? {};
         if (!config.headers['Authorization']) {
@@ -183,7 +190,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         if (
           status === 401 &&
           !isAuthEndpoint &&
-          state.session?.tokens.refreshToken &&
+          sessionRef.current?.tokens.refreshToken &&
           originalRequest &&
           !originalRequest._retry
         ) {
@@ -208,7 +215,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       apiClient.interceptors.request.eject(requestId);
       apiClient.interceptors.response.eject(responseId);
     };
-  }, [clearSession, refreshSession, state.session?.tokens.accessToken, state.session?.tokens.refreshToken]);
+  }, [clearSession, refreshSession]);
+
+  useEffect(() => {
+    sessionRef.current = state.session ?? null;
+  }, [state.session]);
 
   const login = useCallback(
     async (email: string, password: string) => {

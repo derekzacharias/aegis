@@ -14,8 +14,17 @@ async function bootstrap() {
   app.setGlobalPrefix(globalPrefix);
   app.use(helmet());
   app.use(cookieParser());
+  const allowedOrigins = config.get<string[]>('cors.origins') ?? ['http://localhost:4200'];
+
   app.enableCors({
-    origin: ['http://localhost:4200'],
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
     credentials: true
   });
   app.useGlobalPipes(

@@ -31,6 +31,11 @@ export default () => {
   );
   const passwordMinLength = parseNumber(process.env['AUTH_PASSWORD_MIN_LENGTH'], 12);
 
+  const corsOrigins = (process.env['CORS_ORIGINS'] ?? 'http://localhost:4200')
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+
   const storageMode = (process.env['EVIDENCE_STORAGE_MODE'] ?? 'local').toLowerCase();
   const storageBucket = process.env['EVIDENCE_BUCKET'] ?? 'local-evidence';
   const storageEndpoint = process.env['EVIDENCE_STORAGE_ENDPOINT'] ?? '';
@@ -55,6 +60,9 @@ export default () => {
       accessTokenTtlSeconds,
       refreshTokenTtlSeconds,
       passwordMinLength
+    },
+    cors: {
+      origins: corsOrigins
     },
     storage: {
       mode: storageMode,

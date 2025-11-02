@@ -1,0 +1,411 @@
+#!/usr/bin/env node
+'use strict';
+
+const { spawn, spawnSync } = require('child_process');
+const fs = require('fs');
+const net = require('net');
+const path = require('path');
+const readline = require('readline');
+
+const rootDir = __dirname;
+const logsRoot = path.join(rootDir, 'logs');
+fs.mkdirSync(logsRoot, { recursive: true });
+
+const runStamp = new Date().toISOString().replace(/[:.]/g, '-');
+const runDir = path.join(logsRoot, runStamp);
+fs.mkdirSync(runDir, { recursive: true });
+
+const runLogPath = path.join(runDir, 'run.log');
+const logFiles = {
+  api: path.join(runDir, 'api.log'),
+  web: path.join(runDir, 'web.log')
+};
+
+try {
+  const latestLink = path.join(logsRoot, 'latest');
+  fs.rmSync(latestLink, { recursive: true, force: true });
+  fs.symlinkSync(runDir, latestLink, 'dir');
+} catch {
+  // symlink not critical; ignore errors (e.g., on Windows)
+}
+
+const state = {
+  apiReady: false,
+  apiEndpoint: 'http://127.0.0.1:3333/api',
+  webReady: false,
+  webUrl: 'http://localhost:4200',
+  notified: false
+};
+
+const childProcesses = new Map();
+let shuttingDown = false;
+
+function timestamp() {
+  return new Date().toISOString().replace('T', ' ').replace('Z', '');
+}
+
+function appendLine(file, line) {
+  fs.appendFileSync(file, `${line}\n`);
+}
+
+function log(message) {
+  const line = `[${timestamp()}] ${message}`;
+  console.log(line);
+  appendLine(runLogPath, line);
+}
+
+function stripAnsi(value) {
+  return value.replace(/\u001b\[[0-9;]*m/g, '');
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isPortOpen(host, port, timeout = 2000) {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host, port });
+    const onDone = (result) => {
+      socket.destroy();
+      resolve(result);
+    };
+    socket.once('connect', () => onDone(true));
+    socket.once('error', () => onDone(false));
+    socket.setTimeout(timeout, () => onDone(false));
+  });
+}
+
+async function waitForPort(host, port, timeoutMs) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (await isPortOpen(host, port)) {
+      return true;
+    }
+    await sleep(500);
+  }
+  return false;
+}
+
+async function ensurePortFree(port, description) {
+  if (await isPortOpen('127.0.0.1', port)) {
+    log(`Port ${port} appears to be in use already. Please stop the process using it (${description}).`);
+    process.exit(1);
+  }
+}
+
+function commandExists(command) {
+  const which = process.platform === 'win32' ? 'where' : 'which';
+  const result = spawnSync(which, [command], { stdio: 'ignore' });
+  return result.status === 0;
+}
+
+function runCommandCapture(command, args, options = {}) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd: rootDir,
+      env: options.env ?? process.env,
+      shell: options.shell ?? false
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+
+    child.stdout?.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr?.on('data', (chunk) => {
+      stderr += chunk;
+    });
+
+    child.on('close', (code) => {
+      resolve({ code, stdout, stderr, success: code === 0 });
+    });
+  });
+}
+
+async function ensureDependencies() {
+  const marker = path.join(rootDir, 'node_modules', '.bin', 'ts-node');
+  if (fs.existsSync(marker)) {
+    return;
+  }
+
+  log('Dependencies missing. Running `npm install` (see logs for progress)...');
+  const result = await runCommandCapture('npm', ['install'], { env: process.env, shell: false });
+  appendLine(runLogPath, result.stdout);
+  appendLine(runLogPath, result.stderr);
+  if (!result.success) {
+    log('`npm install` failed. Check logs and resolve dependency issues before retrying.');
+    process.exit(result.code ?? 1);
+  }
+  log('Dependencies installed.');
+}
+
+async function ensurePrismaClient() {
+  const clientPath = path.join(rootDir, 'node_modules', '.prisma', 'client', 'index.js');
+  if (fs.existsSync(clientPath)) {
+    return;
+  }
+
+  log('Generating Prisma client...');
+  await runCommandStreaming('prisma:generate', 'npm', ['run', 'prisma:generate'], {
+    env: process.env
+  });
+  log('Prisma client generated.');
+}
+
+async function ensurePostgres() {
+  if (await isPortOpen('127.0.0.1', 5432)) {
+    log('Postgres is reachable at 127.0.0.1:5432.');
+    return;
+  }
+
+  log('Postgres is not reachable at 127.0.0.1:5432.');
+
+  if (!commandExists('docker')) {
+    log('Docker CLI not found. Start Postgres manually or install Docker, then rerun `./run`.');
+    process.exit(1);
+  }
+
+  const list = await runCommandCapture('docker', ['ps', '-a', '--format', '{{.Names}}'], {
+    env: process.env
+  });
+  if (!list.success) {
+    log(
+      'Unable to inspect Docker containers (docker ps failed). You may need additional permissions. ' +
+        'Re-run this script with elevated privileges or start Postgres manually.'
+    );
+    process.exit(list.code ?? 1);
+  }
+
+  const containers = list.stdout
+    .split('\n')
+    .map((name) => name.trim())
+    .filter(Boolean);
+
+  if (!containers.includes('aegis-postgres')) {
+    log(
+      'No Docker container named `aegis-postgres` exists. Create one with:\n' +
+        '  docker run -d --name aegis-postgres -e POSTGRES_USER=aegis_dev \\\n' +
+        '    -e POSTGRES_PASSWORD="AegisDevPass123!" -e POSTGRES_DB=aegis_dev -p 5432:5432 postgres:15'
+    );
+    process.exit(1);
+  }
+
+  log('Attempting to start Docker container `aegis-postgres`...');
+  const start = await runCommandCapture('docker', ['start', 'aegis-postgres'], {
+    env: process.env
+  });
+  if (!start.success) {
+    log(`Failed to start Postgres container: ${start.stderr.trim()}`);
+    process.exit(start.code ?? 1);
+  }
+
+  log('Waiting for Postgres to accept connections...');
+  const ready = await waitForPort('127.0.0.1', 5432, 20000);
+  if (!ready) {
+    log('Timed out waiting for Postgres to come online. Check container logs with `docker logs aegis-postgres`.');
+    process.exit(1);
+  }
+
+  log('Postgres is now reachable.');
+}
+
+async function runMigrations() {
+  log('Applying database migrations...');
+  await runCommandStreaming('db:migrate', 'npm', ['run', 'db:migrate'], {
+    env: { ...process.env, FORCE_COLOR: '1' }
+  });
+  log('Database migrations complete.');
+}
+
+function runCommandStreaming(name, command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const env = options.env ?? { ...process.env };
+    const child = spawn(command, args, {
+      cwd: rootDir,
+      env,
+      shell: options.shell ?? false
+    });
+
+    const logFile = path.join(runDir, `${name}.log`);
+    fs.writeFileSync(logFile, '');
+
+    attachLogging(name, child, logFile);
+
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`${name} exited with code ${code}`));
+      }
+    });
+  });
+}
+
+function attachLogging(name, child, logFile) {
+  const handleLine = createLineHandler(name, logFile);
+
+  if (child.stdout) {
+    const rlOut = readline.createInterface({ input: child.stdout });
+    rlOut.on('line', (line) => handleLine(line, false));
+    child.stdout.on('end', () => rlOut.close());
+  }
+
+  if (child.stderr) {
+    const rlErr = readline.createInterface({ input: child.stderr });
+    rlErr.on('line', (line) => handleLine(line, true));
+    child.stderr.on('end', () => rlErr.close());
+  }
+}
+
+function createLineHandler(name, logFile) {
+  return (line, isError) => {
+    const ts = timestamp();
+    const formatted = `[${ts}] [${name}] ${line}`;
+    if (isError) {
+      console.error(formatted);
+    } else {
+      console.log(formatted);
+    }
+    appendLine(logFile, `[${ts}] ${line}`);
+    inspectLine(name, line);
+  };
+}
+
+function maybeAnnounceReady() {
+  if (!state.notified && state.apiReady && state.webReady) {
+    state.notified = true;
+    log(
+      `✅  Aegis UI is ready at ${state.webUrl}. Use your credentials (default: admin@aegis.local / ChangeMeNow!42) to sign in.`
+    );
+  }
+}
+
+function inspectLine(name, line) {
+  const plain = stripAnsi(line);
+
+  if (name === 'api') {
+    if (plain.includes('API running on')) {
+      const parts = plain.split(' ');
+      state.apiEndpoint = parts[parts.length - 1];
+      state.apiReady = true;
+      log(`API ready at ${state.apiEndpoint}`);
+      maybeAnnounceReady();
+    }
+  }
+
+  if (name === 'web') {
+    if (plain.includes('Local:')) {
+      const match = plain.match(/http:\/\/[^\s]+/);
+      if (match) {
+        state.webUrl = match[0];
+        state.webReady = true;
+        log(`Web UI ready at ${state.webUrl}`);
+        maybeAnnounceReady();
+      }
+    }
+  }
+}
+
+function startService(name, command, args, options = {}) {
+  log(`Starting ${name}...`);
+  const env = {
+    ...process.env,
+    NX_DAEMON: 'false',
+    FORCE_COLOR: '1',
+    ...options.env
+  };
+
+  const child = spawn(command, args, {
+    cwd: rootDir,
+    env,
+    shell: options.shell ?? false
+  });
+
+  fs.writeFileSync(logFiles[name], '');
+  attachLogging(name, child, logFiles[name]);
+  childProcesses.set(name, child);
+
+  child.on('close', (code, signal) => {
+    if (shuttingDown) {
+      return;
+    }
+    log(`${name} exited unexpectedly (code: ${code ?? 'null'}, signal: ${signal ?? 'null'}).`);
+    shutdown(code ?? 1);
+  });
+}
+
+function shutdown(exitCode = 0) {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
+
+  log('Shutting down services...');
+  for (const [name, child] of childProcesses.entries()) {
+    if (!child.killed) {
+      log(`Stopping ${name}...`);
+      child.kill('SIGTERM');
+    }
+  }
+
+  setTimeout(() => {
+    for (const child of childProcesses.values()) {
+      if (!child.killed) {
+        child.kill('SIGKILL');
+      }
+    }
+    log(`Logs saved under ${runDir}`);
+    process.exit(exitCode);
+  }, 5000);
+}
+
+process.on('SIGINT', () => {
+  log('Received SIGINT (Ctrl+C).');
+  shutdown(0);
+});
+
+process.on('SIGTERM', () => {
+  log('Received SIGTERM.');
+  shutdown(0);
+});
+
+async function main() {
+  log(`Run logs will be stored in ${runDir}`);
+
+  try {
+    await ensureDependencies();
+    await ensurePrismaClient();
+    await ensurePostgres();
+
+    if (!(await isPortOpen('127.0.0.1', 5432))) {
+      log('Postgres is still unreachable after startup attempts. Aborting.');
+      process.exit(1);
+    }
+
+    await runMigrations();
+    log('Seeding baseline data...');
+    await runCommandStreaming('prisma-seed', 'npm', ['run', 'prisma:seed'], {
+      env: { ...process.env, FORCE_COLOR: '1' }
+    });
+    log('Database seed complete.');
+
+    await ensurePortFree(3333, 'Nest API (npm run dev:api)');
+    await ensurePortFree(4200, 'Vite dev server (npm run dev:web)');
+
+    startService('api', 'npm', ['run', 'dev:api']);
+    startService('web', 'npm', ['run', 'dev:web']);
+
+    log('Services are starting. Watch this terminal for readiness messages.');
+    log(`Detailed logs: ${runDir} (current run) and ${path.join(logsRoot, 'latest')}`);
+  } catch (error) {
+    log(`Startup failed: ${error.message}`);
+    log('See logs above for details.');
+    shutdown(1);
+  }
+}
+
+void main();

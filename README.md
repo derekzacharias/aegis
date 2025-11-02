@@ -7,14 +7,39 @@ A unified cybersecurity compliance platform targeting NIST 800-53, NIST CSF, CIS
 > **Prerequisites:** Node.js 18+, npm, PostgreSQL 14+, Redis (optional for future queue support).
 > Report generation requires system libraries for headless Chromium (Ubuntu/Debian: `apt-get install -y libnss3 libatk1.0-0 libatk-bridge2.0-0 libx11-dev libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2`) and runs Puppeteer in headless mode by default.
 
+### Quick start
+
+The easiest way to bring everything up locally is with the provided runner:
+
+```bash
+./run
+```
+
+It will:
+
+- verify/install Node dependencies and generate the Prisma client if needed
+- ensure PostgreSQL is reachable (starting the `aegis-postgres` Docker container when available)
+- run pending Prisma migrations and seed baseline data (admin user, sample org, frameworks, etc.)
+- launch the API (`npm run dev:api`) and web UI (`npm run dev:web`) together with the Nx daemon disabled to avoid socket issues
+- stream both service logs to the terminal while also writing them to timestamped files under `logs/<run-id>/`
+
+When both services are ready you will see a message like:
+
+```
+✅  Aegis UI is ready at http://localhost:4200/. Use your credentials (default: admin@aegis.local / ChangeMeNow!42) to sign in.
+```
+
+All output for the current session is stored in `logs/latest`, so you can inspect `api.log`, `web.log`, or `run.log` after the fact.
+
+If you prefer to operate the services manually, follow the steps below.
+
 1. Install dependencies:
    ```bash
    npm install
    ```
 2. (Optional, WIP) Generate Prisma client and apply schema:
    ```bash
-   npx prisma generate --schema apps/api/prisma/schema.prisma
-   npx prisma migrate deploy --schema apps/api/prisma/schema.prisma
+   npm run prisma:generate
    npm run db:migrate
    ```
    > ⚠️ The Prisma schema is still evolving for the persistence milestone, so these commands
@@ -22,7 +47,7 @@ A unified cybersecurity compliance platform targeting NIST 800-53, NIST CSF, CIS
 
 3. (Optional) Seed baseline data (frameworks, initial admin user, sample evidence records):
    ```bash
-   npx ts-node apps/api/prisma/seed.ts
+   npm run prisma:seed
    ```
    > Requires a configured database + Prisma client generation. The seed script respects
    > `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` if you want to customize the default
@@ -81,6 +106,7 @@ AUTH_ACCESS_TOKEN_TTL=900              # seconds (default 15 minutes)
 AUTH_REFRESH_TOKEN_TTL=604800          # seconds (default 7 days)
 AUTH_PASSWORD_MIN_LENGTH=12
 AUTH_PASSWORD_MIN_LENGTH=12            # enforce password policy at register/login
+CORS_ORIGINS=http://localhost:4200     # comma-separated list of allowed web origins
 EVIDENCE_BUCKET=local-evidence
 EVIDENCE_STORAGE_MODE=local            # 'local' (default) or 's3'
 EVIDENCE_STORAGE_ENDPOINT=             # optional S3/MinIO endpoint
@@ -97,6 +123,8 @@ VITE_POLICY_ACTOR_EMAIL=alex.mercier@example.com
 # Optional: point the worker scheduler at the live API instance
 # SCHEDULER_API_BASE_URL=http://localhost:3333/api
 ```
+
+> Tip: add any LAN/external URL you use to reach Vite (for example `http://192.168.20.13:4200`) to `CORS_ORIGINS` so the API accepts requests from that origin during development.
 
 ### Authentication & RBAC
 
