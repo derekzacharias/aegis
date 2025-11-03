@@ -54,7 +54,14 @@ const formatDate = (value: string | null | undefined) => {
 
 const getErrorMessage = (error: unknown): string => {
   if (axios.isAxiosError(error)) {
+    const status = error.response?.status;
     const responseMessage = error.response?.data?.message;
+    if (status === 404) {
+      return 'User service is unavailable. Ensure the API is running and you have permission to create users.';
+    }
+    if (!error.response) {
+      return 'Unable to reach the API. Confirm the backend service is running.';
+    }
     if (Array.isArray(responseMessage)) {
       return responseMessage.join(', ');
     }
