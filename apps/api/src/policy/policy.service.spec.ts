@@ -269,6 +269,176 @@ describe('PolicyService', () => {
     expect(result.approvals[0].status).toBe(PolicyApprovalStatus.PENDING);
   });
 
+  it('creates a new version with framework mappings and records an audit event', async () => {
+    prisma.policyDocument.findFirst.mockResolvedValueOnce({
+      id: 'policy-1',
+      organizationId: author.organizationId,
+      ownerId: author.id,
+      title: 'Access Control Policy',
+      category: null,
+      tags: [],
+      description: null,
+      reviewCadenceDays: null,
+      retentionPeriodDays: null,
+      retentionReason: null,
+      retentionExpiresAt: null,
+      createdAt: new Date('2024-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2024-01-01T00:00:00.000Z'),
+      owner: buildUser('author'),
+      currentVersion: null,
+      versions: [],
+      auditTrail: []
+    });
+    prisma.policyVersion.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'version-new',
+        policyId: 'policy-1',
+        document: {
+          id: 'policy-1',
+          ownerId: author.id,
+          organizationId: author.organizationId
+        },
+        versionNumber: 1,
+        label: null,
+        status: PolicyVersionStatus.DRAFT,
+        createdAt: new Date('2024-01-01T00:00:00.000Z'),
+        updatedAt: new Date('2024-01-01T00:00:00.000Z'),
+        createdBy: buildUser('author'),
+        submittedBy: null,
+        approvedBy: null,
+        submittedAt: null,
+        approvedAt: null,
+        effectiveAt: null,
+        notes: null,
+        isCurrent: false,
+        supersedesId: null,
+        storagePath: 'policies/org-1/policy-1/v1.pdf',
+        originalName: 'policy.pdf',
+        mimeType: 'application/pdf',
+        fileSizeBytes: 1024,
+        checksum: 'sha256:abc',
+        approvals: [],
+        frameworkMappings: [
+          {
+            id: 'map-1',
+            policyVersionId: 'version-new',
+            frameworkId: 'framework-1',
+            controlFamilies: ['ID'],
+            controlIds: ['ID.AM-1'],
+            framework: {
+              id: 'framework-1',
+              name: 'NIST CSF'
+            }
+          }
+        ]
+      });
+
+    prisma.framework.findMany.mockResolvedValueOnce([{ id: 'framework-1' }]);
+    storage.persist = jest.fn().mockResolvedValue({
+      storagePath: 'policies/org-1/policy-1/v1.pdf',
+      checksum: 'sha256:abc'
+    });
+    tx.policyVersion.create.mockResolvedValueOnce({
+      id: 'version-new',
+      versionNumber: 1,
+      label: null,
+      supersedesId: null
+    });
+
+    await service.createVersion(
+      'policy-1',
+      author,
+      {
+        label: 'Q1 Update',
+        frameworkMappings: JSON.stringify([
+          {
+            frameworkId: 'framework-1',
+            controlFamilies: ['ID'],
+            controlIds: ['ID.AM-1']
+          }
+        ])
+      },
+      {
+        buffer: Buffer.from('policy'),
+        originalname: 'policy.pdf',
+        mimetype: 'application/pdf',
+        size: 1024
+      }
+    );
+
+    expect(tx.policyVersionFramework.deleteMany).toHaveBeenCalledWith({
+      where: { policyVersionId: 'version-new' }
+    });
+    expect(tx.policyVersionFramework.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          frameworkId: 'framework-1',
+          controlFamilies: ['ID'],
+          controlIds: ['ID.AM-1']
+        })
+      ]
+    });
+    expect(tx.policyAuditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: 'VERSION_CREATED' })
+      })
+    );
+  });
+
+  it('updates retention settings and records an audit entry', async () => {
+    const basePolicy = {
+      id: 'policy-1',
+      organizationId: author.organizationId,
+      ownerId: author.id,
+      title: 'Access Policy',
+      category: null,
+      tags: [],
+      description: null,
+      reviewCadenceDays: null,
+      retentionPeriodDays: null,
+      retentionReason: null,
+      retentionExpiresAt: null,
+      createdAt: new Date('2024-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2024-01-01T00:00:00.000Z'),
+      owner: buildUser('author'),
+      currentVersion: null,
+      versions: [],
+      auditTrail: []
+    };
+
+    prisma.policyDocument.findFirst
+      .mockResolvedValueOnce(basePolicy)
+      .mockResolvedValueOnce({
+        ...basePolicy,
+        retentionPeriodDays: 730,
+        retentionReason: 'Extended for audit requirements',
+        retentionExpiresAt: new Date('2024-12-31T00:00:00.000Z')
+      });
+
+    prisma.policyDocument.update.mockResolvedValue({});
+
+    await service.updatePolicy('policy-1', author, {
+      retentionPeriodDays: 730,
+      retentionReason: 'Extended for audit requirements',
+      retentionExpiresAt: '2024-12-31'
+    });
+
+    expect(prisma.policyDocument.update).toHaveBeenCalledWith({
+      where: { id: 'policy-1' },
+      data: expect.objectContaining({
+        retentionPeriodDays: 730,
+        retentionReason: 'Extended for audit requirements',
+        retentionExpiresAt: new Date('2024-12-31T00:00:00.000Z')
+      })
+    });
+    expect(prisma.policyAuditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: 'RETENTION_UPDATED' })
+      })
+    );
+  });
+
   it('promotes a version when final approval is recorded', async () => {
     const inReviewVersion = buildVersion({
       status: PolicyVersionStatus.IN_REVIEW,
