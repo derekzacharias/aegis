@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   UnauthorizedException
 } from '@nestjs/common';
@@ -39,6 +40,12 @@ const mockConfigService = {
         return 604800;
       case 'auth.passwordMinLength':
         return 12;
+      case 'auth.passwordComplexity':
+        return ['lower', 'upper', 'digit', 'symbol'];
+      case 'auth.tokenIssuer':
+        return 'test-issuer';
+      case 'auth.tokenAudience':
+        return 'test-audience';
       default:
         return undefined;
     }
@@ -73,7 +80,8 @@ describe('AuthService', () => {
         refreshTokenHash: null,
         organizationId,
         createdAt: new Date(),
-        updatedAt: new Date()
+        updatedAt: new Date(),
+        passwordChangedAt: data.passwordChangedAt
       }));
       mockJwtService.signAsync
         .mockResolvedValueOnce('access-token')
@@ -101,10 +109,22 @@ describe('AuthService', () => {
         data: expect.objectContaining({
           email: payload.email.toLowerCase(),
           role: UserRole.AUDITOR,
-          organizationId
+          organizationId,
+          passwordChangedAt: expect.any(Date)
         })
       });
-      expect(mockPrisma.user.update).toHaveBeenCalled();
+      const updateCall = mockPrisma.user.update.mock.calls[0]?.[0];
+      expect(updateCall).toBeDefined();
+      expect(updateCall).toEqual({
+        where: { id: 'user-1' },
+        data: expect.objectContaining({
+          refreshTokenHash: expect.any(String),
+          refreshTokenId: expect.any(String),
+          refreshTokenIssuedAt: expect.any(Date),
+          refreshTokenInvalidatedAt: null,
+          lastLoginAt: expect.any(Date)
+        })
+      });
     });
 
     it('throws when email already exists', async () => {
@@ -155,7 +175,13 @@ describe('AuthService', () => {
       expect(result.user.id).toBe(userRecord.id);
       expect(mockPrisma.user.update).toHaveBeenCalledWith({
         where: { id: userRecord.id },
-        data: expect.objectContaining({ refreshTokenHash: expect.any(String) })
+        data: expect.objectContaining({
+          refreshTokenHash: expect.any(String),
+          refreshTokenId: expect.any(String),
+          refreshTokenIssuedAt: expect.any(Date),
+          refreshTokenInvalidatedAt: null,
+          lastLoginAt: expect.any(Date)
+        })
       });
     });
 
@@ -188,7 +214,9 @@ describe('AuthService', () => {
 
       mockJwtService.verifyAsync.mockResolvedValueOnce({
         sub: 'user-1',
-        type: 'refresh'
+        type: 'refresh',
+        jti: 'refresh-id',
+        iat: Math.floor(Date.now() / 1000)
       });
 
       mockPrisma.user.findUnique.mockResolvedValueOnce({
@@ -204,6 +232,9 @@ describe('AuthService', () => {
         role: UserRole.ANALYST,
         passwordHash: 'hash',
         refreshTokenHash: hashedRefresh,
+        refreshTokenId: 'refresh-id',
+        refreshTokenInvalidatedAt: null,
+        passwordChangedAt: null,
         organizationId: 'org-1',
         lastLoginAt: null,
         createdAt: new Date(),
@@ -224,7 +255,12 @@ describe('AuthService', () => {
       expect(result.tokens.refreshToken).toBe('refresh-new');
       expect(mockPrisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
-        data: expect.objectContaining({ refreshTokenHash: expect.any(String) })
+        data: expect.objectContaining({
+          refreshTokenHash: expect.any(String),
+          refreshTokenId: expect.any(String),
+          refreshTokenIssuedAt: expect.any(Date),
+          refreshTokenInvalidatedAt: null
+        })
       });
     });
 
@@ -237,6 +273,43 @@ describe('AuthService', () => {
         UnauthorizedException
       );
     });
+
+    it('invalidates refresh hash when payload is missing jti', async () => {
+      const hashedRefresh = await hash('token', 12);
+      mockJwtService.verifyAsync.mockResolvedValueOnce({
+        sub: 'user-1',
+        type: 'refresh'
+      });
+
+      mockPrisma.user.findUnique.mockResolvedValueOnce({
+        id: 'user-1',
+        email: 'user@example.com',
+        role: UserRole.ANALYST,
+        passwordHash: 'hash',
+        refreshTokenHash: hashedRefresh,
+        refreshTokenId: 'existing',
+        refreshTokenInvalidatedAt: null,
+        passwordChangedAt: null,
+        organizationId: 'org-1',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+
+      const service = createService();
+
+      await expect(service.refresh({ refreshToken: 'token' })).rejects.toBeInstanceOf(
+        UnauthorizedException
+      );
+
+      expect(mockPrisma.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: expect.objectContaining({
+          refreshTokenHash: null,
+          refreshTokenId: null,
+          refreshTokenInvalidatedAt: expect.any(Date)
+        })
+      });
+    });
   });
 
   describe('logout', () => {
@@ -248,8 +321,29 @@ describe('AuthService', () => {
 
       expect(mockPrisma.user.updateMany).toHaveBeenCalledWith({
         where: { id: 'user-1' },
-        data: { refreshTokenHash: null }
+        data: {
+          refreshTokenHash: null,
+          refreshTokenId: null,
+          refreshTokenIssuedAt: null,
+          refreshTokenInvalidatedAt: expect.any(Date)
+        }
       });
+    });
+  });
+
+  describe('password policy', () => {
+    it('rejects weak passwords during registration', async () => {
+      mockPrisma.user.findUnique.mockResolvedValueOnce(null);
+      mockPrisma.organization.findUnique.mockResolvedValueOnce({ id: 'org-1' });
+
+      const service = createService();
+
+      await expect(
+        service.register({
+          email: 'weak@example.com',
+          password: 'alllowercase'
+        })
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 });

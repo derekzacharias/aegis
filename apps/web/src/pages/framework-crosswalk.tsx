@@ -52,6 +52,7 @@ import {
   EvidenceReuseHint,
   CrosswalkMatch,
   CrosswalkParams,
+  ControlReference,
   useCrosswalk
 } from '../hooks/use-crosswalk';
 import {
@@ -63,6 +64,19 @@ import {
 type EvidenceHintDraft = EvidenceHintInput & { id?: string };
 
 const defaultMinConfidence = 0.4;
+
+const resolveClause = (metadata?: Record<string, unknown>): string | undefined => {
+  if (!metadata || typeof metadata !== 'object') {
+    return undefined;
+  }
+  const clause = metadata['clause'];
+  return typeof clause === 'string' && clause.trim().length > 0 ? clause : undefined;
+};
+
+const formatControlCode = (reference: ControlReference): string => {
+  const clause = resolveClause(reference.metadata);
+  return (clause ?? reference.id).toUpperCase();
+};
 
 const ManualMappingModal = ({
   match,
@@ -162,16 +176,20 @@ const ManualMappingModal = ({
         <ModalCloseButton disabled={isSubmitting} />
         <ModalBody>
           <Stack spacing={4}>
+            <Text fontSize="sm" color="gray.500">
+              Promote or adjust a mapping before saving it to the catalog. Add rationale, tags, and
+              optional evidence hints so teammates understand why the controls align.
+            </Text>
             <Box>
               <Text fontWeight="semibold">Source Control</Text>
               <Text fontSize="sm" color="gray.500">
-                {match.source.id} · {match.source.title}
+                {formatControlCode(match.source)} · {match.source.title}
               </Text>
             </Box>
             <Box>
               <Text fontWeight="semibold">Target Control</Text>
               <Text fontSize="sm" color="gray.500">
-                {match.target.id} · {match.target.title}
+                {formatControlCode(match.target)} · {match.target.title}
               </Text>
             </Box>
 
@@ -543,8 +561,10 @@ const FrameworkCrosswalkPage = () => {
 
       const header = [
         'Source Control',
+        'Source Reference',
         'Source Title',
         'Target Control',
+        'Target Reference',
         'Target Title',
         'Confidence',
         'Origin',
@@ -566,8 +586,10 @@ const FrameworkCrosswalkPage = () => {
 
         return [
           match.source.id,
+          formatControlCode(match.source),
           match.source.title,
           match.target.id,
+          formatControlCode(match.target),
           match.target.title,
           match.confidence.toFixed(2),
           match.origin,
@@ -664,6 +686,11 @@ const FrameworkCrosswalkPage = () => {
               ? `Suggested mappings for ${currentFramework.name} (${currentFramework.version}).`
               : 'Review suggested cross-framework mappings and curate manual overrides.'}
           </Text>
+          <Text fontSize="sm" color="gray.500">
+            Crosswalk Explorer compares control language across frameworks to highlight likely
+            equivalencies. Use the suggestions as a starting point, then validate or promote the
+            mappings your organization relies on for evidence reuse.
+          </Text>
         </VStack>
         <Menu>
           <MenuButton
@@ -694,11 +721,17 @@ const FrameworkCrosswalkPage = () => {
           onChange={(event) => setSearchDraft(event.target.value)}
         />
         <FormHelperText>
-          Search applies to both source and target controls as well as mapping tags.
-        </FormHelperText>
-      </FormControl>
+        Search applies to both source and target controls as well as mapping tags.
+      </FormHelperText>
+    </FormControl>
 
-      <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={4} alignItems="end">
+    <Text fontSize="sm" color="gray.500">
+      Refine the suggestion set by targeting a destination framework, tightening the confidence
+      threshold, or focusing on mapped versus machine-suggested links. Filters update immediately so
+      you can iterate without refreshing the page.
+    </Text>
+
+    <SimpleGrid columns={{ base: 1, md: 2, xl: 4 }} spacing={4} alignItems="end">
         <FormControl>
           <FormLabel>Target Framework</FormLabel>
           <Select value={targetFrameworkId ?? ''} onChange={handleTargetFrameworkChange}>
@@ -748,9 +781,15 @@ const FrameworkCrosswalkPage = () => {
             ))}
           </Select>
         </FormControl>
-      </SimpleGrid>
+  </SimpleGrid>
 
-      {isLoading ? (
+  <Text fontSize="sm" color="gray.500">
+    Each row pairs a source control with a potential target match. Suggested entries come from text
+    similarity, while mapped entries reflect saved crosswalks. Promote the strongest links or open
+    them for manual curation to capture rationale and evidence hints.
+  </Text>
+
+  {isLoading ? (
         <HStack spacing={3}>
           <Spinner />
           <Text>Loading crosswalk recommendations…</Text>
@@ -800,7 +839,7 @@ const FrameworkCrosswalkPage = () => {
                     <Tr key={match.id} bg={match.status === 'suggested' ? suggestionBg : undefined}>
                       <Td>
                         <Stack spacing={1}>
-                          <Text fontWeight="semibold">{match.source.id}</Text>
+                          <Text fontWeight="semibold">{formatControlCode(match.source)}</Text>
                           <Text fontSize="sm" color="gray.500">
                             {match.source.title}
                           </Text>
@@ -811,7 +850,7 @@ const FrameworkCrosswalkPage = () => {
                       </Td>
                       <Td>
                         <Stack spacing={1}>
-                          <Text fontWeight="semibold">{match.target.id}</Text>
+                          <Text fontWeight="semibold">{formatControlCode(match.target)}</Text>
                           <Text fontSize="sm" color="gray.500">
                             {match.target.title}
                           </Text>

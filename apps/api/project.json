@@ -3,7 +3,7 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "apps/api/src",
   "projectType": "application",
-  "implicitDependencies": [],
+  "implicitDependencies": ["shared"],
   "targets": {
     "build": {
       "executor": "@nx/js:tsc",
@@ -12,13 +12,21 @@
         "outputPath": "dist/apps/api",
         "main": "apps/api/src/main.ts",
         "tsConfig": "apps/api/tsconfig.app.json",
+        "outputFileName": "src/main.js",
         "assets": ["apps/api/src/assets"]
       }
     },
     "serve": {
       "executor": "@nx/js:node",
+      "dependsOn": [
+        {
+          "target": "build",
+          "projects": "dependencies"
+        }
+      ],
       "options": {
-        "buildTarget": "api:build"
+        "buildTarget": "api:build",
+        "runtimeArgs": ["-r", "tsconfig-paths/register"]
       }
     },
     "lint": {
@@ -36,19 +44,21 @@
       }
     },
     "prisma-generate": {
-      "executor": "@nx/js:ts-node",
+      "executor": "nx:run-commands",
       "options": {
-        "script": "node_modules/prisma/build/index.js",
-        "args": ["generate"],
-        "cwd": "apps/api"
+        "command": "npx prisma generate --schema apps/api/prisma/schema.prisma"
       }
     },
     "prisma-migrate": {
-      "executor": "@nx/js:ts-node",
+      "executor": "nx:run-commands",
       "options": {
-        "script": "node_modules/prisma/build/index.js",
-        "args": ["migrate", "deploy"],
-        "cwd": "apps/api"
+        "command": "npx prisma migrate deploy --schema apps/api/prisma/schema.prisma"
+      }
+    },
+    "prisma-seed": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx ts-node --project apps/api/prisma/tsconfig.seed.json apps/api/prisma/seed.ts"
       }
     }
   },

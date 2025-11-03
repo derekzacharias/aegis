@@ -18,3 +18,4 @@ gitignore
 !/tsconfig.base.json
 !/workspace.json
 !/jest.preset.js
+!/run

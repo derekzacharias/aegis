@@ -1,5 +1,7 @@
 /* eslint-disable */
-export default {
+import { withNodeEnvironment } from '../../tools/testing/jest-config';
+
+export default withNodeEnvironment({
   displayName: 'api',
   preset: '../../jest.preset.js',
   transform: {
@@ -10,6 +12,5 @@ export default {
     '^@compliance/api/(.*)$': '<rootDir>/src/$1'
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
-  coverageDirectory: '../../coverage/apps/api',
-  testEnvironment: 'node'
-};
+  coverageDirectory: '../../coverage/apps/api'
+});

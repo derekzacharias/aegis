@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FrameworkSummary as SharedFrameworkSummary } from '@compliance/shared';
 import apiClient from '../services/api-client';
 
@@ -62,6 +62,36 @@ const fallback: FrameworkSummary[] = [
     createdAt: FALLBACK_TIMESTAMP,
     updatedAt: FALLBACK_TIMESTAMP,
     publishedAt: FALLBACK_TIMESTAMP
+  },
+  {
+    id: 'iso-27001-2022',
+    slug: 'iso-27001-2022',
+    name: 'ISO/IEC 27001',
+    version: '2022',
+    description:
+      'Information security management system requirements for establishing, implementing, and improving an ISMS.',
+    family: 'ISO',
+    status: 'PUBLISHED',
+    isCustom: false,
+    controlCount: 93,
+    createdAt: FALLBACK_TIMESTAMP,
+    updatedAt: FALLBACK_TIMESTAMP,
+    publishedAt: FALLBACK_TIMESTAMP
+  },
+  {
+    id: 'iso-27002-2022',
+    slug: 'iso-27002-2022',
+    name: 'ISO/IEC 27002',
+    version: '2022',
+    description:
+      'Implementation guidance for Annex A controls with examples, measures, and management considerations.',
+    family: 'ISO',
+    status: 'PUBLISHED',
+    isCustom: false,
+    controlCount: 93,
+    createdAt: FALLBACK_TIMESTAMP,
+    updatedAt: FALLBACK_TIMESTAMP,
+    publishedAt: FALLBACK_TIMESTAMP
   }
 ];
 
@@ -76,3 +106,15 @@ export const useFrameworks = () =>
     placeholderData: fallback,
     retry: false
   });
+
+export const useDeleteFramework = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (frameworkId: string) => {
+      await apiClient.delete(`/frameworks/${frameworkId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['frameworks'] });
+    }
+  });
+};

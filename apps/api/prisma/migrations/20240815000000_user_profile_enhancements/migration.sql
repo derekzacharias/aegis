@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS "UserProfileAudit" (
 );
 
 ALTER TABLE "UserProfileAudit"
-    ADD CONSTRAINT IF NOT EXISTS "UserProfileAudit_actorId_fkey"
+    ADD CONSTRAINT "UserProfileAudit_actorId_fkey"
     FOREIGN KEY ("actorId") REFERENCES "User"("id") ON DELETE SET NULL;
 
 CREATE INDEX IF NOT EXISTS "UserProfileAudit_userId_createdAt_idx"

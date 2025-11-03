@@ -7,12 +7,14 @@ import {
   NotFoundException,
   Optional
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   EvidenceIngestionStatus,
   EvidenceStatus,
   EvidenceUploadStatus,
   EvidenceStorageProvider,
   EvidenceUploadRequest,
+  EvidenceScanStatus,
   Prisma
 } from '@prisma/client';
 import {
@@ -35,6 +37,7 @@ import { ConfirmUploadDto } from './dto/confirm-upload.dto';
 import { UpdateEvidenceStatusDto } from './dto/update-evidence-status.dto';
 import { UpdateEvidenceMetadataDto } from './dto/update-evidence-metadata.dto';
 import { UpdateEvidenceLinksDto } from './dto/update-evidence-links.dto';
+import { ReprocessEvidenceDto } from './dto/reprocess-evidence.dto';
 import { AuthenticatedUser } from '../auth/types/auth.types';
 
 type EvidenceItemWithRelations = Prisma.EvidenceItemGetPayload<{
@@ -92,6 +95,7 @@ export class EvidenceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: EvidenceStorageService,
+    private readonly config: ConfigService,
     @Optional() queue?: JobQueue
   ) {
     this.queue = queue ?? jobQueue;
@@ -442,6 +446,8 @@ export class EvidenceService {
 
     const initialStatus = payload.initialStatus ?? EvidenceStatus.PENDING;
 
+    const evidenceInclude = this.getEvidenceInclude();
+
     const evidence = await this.prisma.evidenceItem.create({
       data: {
         organizationId: user.organizationId,
@@ -487,25 +493,7 @@ export class EvidenceService {
             }
           : undefined
       },
-      include: {
-        reviewer: true,
-        uploadedBy: true,
-        frameworks: {
-          include: {
-            framework: true
-          }
-        },
-        controls: {
-          include: {
-            assessmentControl: {
-              include: {
-                assessment: true,
-                control: true
-              }
-            }
-          }
-        }
-      }
+      include: evidenceInclude
     });
 
     await this.prisma.evidenceUploadRequest.update({
@@ -532,16 +520,127 @@ export class EvidenceService {
       }
     });
 
+    const scanEngine = this.resolveScanEngine();
+    const scan = await this.prisma.evidenceScan.create({
+      data: {
+        evidenceId: evidence.id,
+        engine: scanEngine,
+        status: EvidenceScanStatus.PENDING,
+        findings: null,
+        failureReason: null,
+        quarantined: false
+      }
+    });
+
+    if (!this.isAntivirusEnabled()) {
+      const skipNote = 'Scan skipped: antivirus disabled in this environment';
+      const updated = await this.completeWithoutScan(
+        evidence.id,
+        scan.id,
+        resolvedFileSize,
+        scanEngine,
+        skipNote,
+        evidenceInclude
+      );
+
+      this.logger.log(
+        `Evidence ${evidence.id} ingestion auto-completed (antivirus disabled)`
+      );
+
+      return this.toEvidenceRecord(updated);
+    }
+
     await this.queue.enqueue<EvidenceIngestionJobPayload>('evidence.ingest', {
       evidenceId: evidence.id,
+      scanId: scan.id,
       storageUri: evidence.storageUri,
       storageKey: evidence.storageKey,
-      checksum: evidence.checksum ?? undefined
+      storageProvider: evidence.storageProvider,
+      checksum: evidence.checksum ?? undefined,
+      requestedBy: user.email
     });
 
     this.logger.log(`Evidence ${evidence.id} queued for ingestion`);
 
     return this.toEvidenceRecord(evidence);
+  }
+
+  async reprocess(
+    user: AuthenticatedUser,
+    evidenceId: string,
+    payload: ReprocessEvidenceDto
+  ): Promise<EvidenceRecord> {
+    const evidenceInclude = this.getEvidenceInclude();
+    const evidence = await this.prisma.evidenceItem.findUnique({
+      where: { id: evidenceId },
+      include: evidenceInclude
+    });
+
+    if (!evidence || evidence.organizationId !== user.organizationId) {
+      throw new NotFoundException('Evidence not found');
+    }
+
+    const scanEngine = this.resolveScanEngine();
+    const reason = payload.reason?.trim();
+
+    const scan = await this.prisma.evidenceScan.create({
+      data: {
+        evidenceId: evidence.id,
+        engine: scanEngine,
+        status: EvidenceScanStatus.PENDING,
+        findings: reason
+          ? ({ reprocessReason: reason } as Prisma.JsonObject)
+          : undefined,
+        failureReason: null,
+        quarantined: false
+      }
+    });
+
+    if (!this.isAntivirusEnabled()) {
+      const skipNote = 'Re-scan skipped: antivirus disabled in this environment';
+      const updated = await this.completeWithoutScan(
+        evidence.id,
+        scan.id,
+        evidence.fileSize,
+        scanEngine,
+        skipNote,
+        evidenceInclude
+      );
+      return this.toEvidenceRecord(updated);
+    }
+
+    const reprocessNote = reason ? `Re-scan queued: ${reason}` : 'Re-scan queued for antivirus';
+
+    const updated = await this.prisma.evidenceItem.update({
+      where: { id: evidence.id },
+      data: {
+        ingestionStatus: EvidenceIngestionStatus.PENDING,
+        ingestionNotes: reprocessNote,
+        lastScanStatus: EvidenceScanStatus.PENDING,
+        lastScanAt: new Date(),
+        lastScanEngine: scanEngine,
+        lastScanSignatureVersion: null,
+        lastScanNotes: reprocessNote,
+        lastScanDurationMs: null,
+        lastScanBytes: null,
+        nextAction: 'Antivirus re-scan pending'
+      },
+      include: evidenceInclude
+    });
+
+    await this.queue.enqueue<EvidenceIngestionJobPayload>('evidence.ingest', {
+      evidenceId: evidence.id,
+      scanId: scan.id,
+      storageUri: evidence.storageUri,
+      storageKey: evidence.storageKey,
+      storageProvider: evidence.storageProvider,
+      checksum: evidence.checksum ?? undefined,
+      requestedBy: user.email
+    });
+
+    this.logger.log(`Evidence ${evidence.id} re-scan queued (scan ${scan.id})`);
+
+    return this.toEvidenceRecord(updated);
   }
 
   async updateMetadata(
@@ -1104,8 +1203,95 @@ export class EvidenceService {
       reviewer,
       uploadedBy,
       nextAction,
-      ingestionNotes: item.ingestionNotes ?? null
+      ingestionNotes: item.ingestionNotes ?? null,
+      lastScanStatus: item.lastScanStatus ?? null,
+      lastScanAt: item.lastScanAt?.toISOString() ?? null,
+      lastScanEngine: item.lastScanEngine ?? null,
+      lastScanSignatureVersion: item.lastScanSignatureVersion ?? null,
+      lastScanSummary: item.lastScanNotes ?? null,
+      lastScanDurationMs: item.lastScanDurationMs ?? null,
+      lastScanBytes: item.lastScanBytes ?? null
     };
+  }
+
+  private resolveScanEngine(): string {
+    const configured = this.config.get<string>('antivirus.engineName')?.trim();
+    if (configured && configured.length > 0) {
+      return configured;
+    }
+    return 'clamav';
+  }
+
+  private getEvidenceInclude(): Prisma.EvidenceItemInclude {
+    return {
+      reviewer: true,
+      uploadedBy: true,
+      frameworks: {
+        include: {
+          framework: true
+        }
+      },
+      controls: {
+        include: {
+          assessmentControl: {
+            include: {
+              assessment: true,
+              control: true
+            }
+          }
+        }
+      }
+    };
+  }
+
+  private async completeWithoutScan(
+    evidenceId: string,
+    scanId: string,
+    fileSize: number,
+    scanEngine: string,
+    notes: string,
+    include: Prisma.EvidenceItemInclude
+  ): Promise<EvidenceItemWithRelations> {
+    const completedAt = new Date();
+
+    await this.prisma.evidenceScan.update({
+      where: { id: scanId },
+      data: {
+        status: EvidenceScanStatus.CLEAN,
+        completedAt,
+        durationMs: 0,
+        bytesScanned: fileSize,
+        findings: {
+          skipped: true,
+          reason: 'antivirus_disabled'
+        } as Prisma.JsonObject,
+        failureReason: null,
+        quarantined: false,
+        engineVersion: scanEngine,
+        signatureVersion: null
+      }
+    });
+
+    return this.prisma.evidenceItem.update({
+      where: { id: evidenceId },
+      data: {
+        ingestionStatus: EvidenceIngestionStatus.COMPLETED,
+        ingestionNotes: notes,
+        lastScanStatus: EvidenceScanStatus.CLEAN,
+        lastScanAt: completedAt,
+        lastScanEngine: scanEngine,
+        lastScanSignatureVersion: null,
+        lastScanNotes: notes,
+        lastScanDurationMs: 0,
+        lastScanBytes: fileSize
+      },
+      include
+    });
+  }
+
+  private isAntivirusEnabled(): boolean {
+    const configured = this.config.get<boolean>('antivirus.enabled');
+    return configured === undefined ? true : configured;
   }
 
   private deriveNextAction(item: EvidenceItemWithRelations): string | null {

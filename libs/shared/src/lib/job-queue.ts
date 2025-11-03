@@ -1,6 +1,3 @@
-import { EventEmitter } from 'events';
-import { randomUUID } from 'crypto';
-
 export type JobStatus = 'queued' | 'processing' | 'completed' | 'failed';
 
 export interface JobRecord<TPayload = unknown, TResult = unknown> {
@@ -37,11 +34,67 @@ export interface JobQueue {
   reset(): void;
 }
 
+type JobListener = (job: JobRecord) => void;
+
+const scheduleAsync = (callback: () => void) => {
+  const asyncScheduler = (globalThis as { setImmediate?: (fn: () => void) => void }).setImmediate;
+  if (typeof asyncScheduler === 'function') {
+    asyncScheduler(callback);
+  } else {
+    void Promise.resolve().then(callback);
+  }
+};
+
+type CryptoLike = { randomUUID?: () => string };
+
+const generateId = (): string => {
+  const cryptoApi = (globalThis as { crypto?: CryptoLike }).crypto;
+  if (cryptoApi?.randomUUID) {
+    return cryptoApi.randomUUID();
+  }
+  return `job-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+};
+
+class JobEventHub {
+  private readonly listeners = new Map<string, Set<JobListener>>();
+
+  on(event: string, listener: JobListener) {
+    const handlers = this.listeners.get(event) ?? new Set<JobListener>();
+    handlers.add(listener);
+    this.listeners.set(event, handlers);
+  }
+
+  off(event: string, listener: JobListener) {
+    const handlers = this.listeners.get(event);
+    if (!handlers) {
+      return;
+    }
+    handlers.delete(listener);
+    if (handlers.size === 0) {
+      this.listeners.delete(event);
+    }
+  }
+
+  emit(event: string, job: JobRecord) {
+    const handlers = this.listeners.get(event);
+    if (!handlers) {
+      return;
+    }
+    for (const handler of handlers) {
+      handler(job);
+    }
+  }
+
+  removeAllListeners() {
+    this.listeners.clear();
+  }
+}
+
 export class InMemoryJobQueue implements JobQueue {
   private readonly jobs = new Map<string, JobRecord>();
   private readonly pending: string[] = [];
   private readonly processors = new Map<string, JobProcessor<unknown, unknown>>();
-  private readonly events = new EventEmitter();
+  private readonly events = new JobEventHub();
   private processing = false;
 
   on(event: (typeof JOB_EVENTS)[keyof typeof JOB_EVENTS], listener: (job: JobRecord) => void) {
@@ -66,7 +119,7 @@ export class InMemoryJobQueue implements JobQueue {
 
   async enqueue<TPayload>(name: string, payload: TPayload): Promise<JobRecord<TPayload>> {
     const job: JobRecord<TPayload> = {
-      id: randomUUID(),
+      id: generateId(),
       name,
       payload,
       status: 'queued',
@@ -111,7 +164,7 @@ export class InMemoryJobQueue implements JobQueue {
     }
 
     this.processing = true;
-    setImmediate(async () => {
+    scheduleAsync(async () => {
       try {
         await this.processJobs();
       } finally {

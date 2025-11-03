@@ -8,6 +8,10 @@
     "build": "nx run-many --target build --all",
     "lint": "nx run-many --target lint --all",
     "test": "nx run-many --target test --all",
+    "test:dom": "nx run-many --target test --projects web",
+    "test:node": "nx run-many --target test --projects api,worker,shared",
+    "affected:test": "nx affected --target test",
+    "affected:lint": "nx affected --target lint",
     "format": "nx format:write",
     "format:check": "nx format:check",
     "dev": "npm run dev:web",
@@ -17,8 +21,10 @@
     "dev:nx": "nx run-many --target serve --parallel --projects web,api",
     "serve:web": "nx serve web",
     "serve:api": "nx serve api",
-    "prisma:generate": "nx run api:prisma-generate",
-    "db:migrate": "nx run api:prisma-migrate"
+    "prisma:generate": "npx prisma generate --schema apps/api/prisma/schema.prisma",
+    "db:migrate": "npx prisma migrate deploy --schema apps/api/prisma/schema.prisma",
+    "prisma:seed": "npx ts-node --project apps/api/prisma/tsconfig.seed.json apps/api/prisma/seed.ts",
+    "test:db-smoke": "node tools/testing/prisma-smoke.cjs"
   },
   "dependencies": {
     "@chakra-ui/react": "^2.8.2",

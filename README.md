@@ -69,6 +69,14 @@ If you prefer to operate the services manually, follow the steps below.
    > a fully configured database and Prisma client. For the UI MVP you can rely on the
    > in-memory API described above.
 
+### Testing
+
+- `npm run test` – run every Jest target (Node + jsdom).
+- `npm run test:node` – back-end and shared-library suites only.
+- `npm run test:dom` – browser-oriented suites (React, DOM utilities).
+- `npm run affected:test` – Nx-aware test subset for CI and pre-commit workflows.
+- See `docs/testing.md` for deeper guidance on environments, polyfills, and debugging tips.
+
 ## Project Structure
 
 - `apps/web` – React + Chakra UI frontend with TanStack Query data layer.
@@ -105,7 +113,9 @@ SEED_ADMIN_PASSWORD=ChangeMeNow!42
 AUTH_ACCESS_TOKEN_TTL=900              # seconds (default 15 minutes)
 AUTH_REFRESH_TOKEN_TTL=604800          # seconds (default 7 days)
 AUTH_PASSWORD_MIN_LENGTH=12
-AUTH_PASSWORD_MIN_LENGTH=12            # enforce password policy at register/login
+AUTH_PASSWORD_COMPLEXITY=lower,upper,digit,symbol
+AUTH_TOKEN_ISSUER=aegis-api
+AUTH_TOKEN_AUDIENCE=aegis-clients
 CORS_ORIGINS=http://localhost:4200     # comma-separated list of allowed web origins
 EVIDENCE_BUCKET=local-evidence
 EVIDENCE_STORAGE_MODE=local            # 'local' (default) or 's3'
@@ -116,6 +126,13 @@ EVIDENCE_STORAGE_SECRET_KEY=
 EVIDENCE_STORAGE_FORCE_PATH_STYLE=true
 EVIDENCE_UPLOAD_URL_TTL=900            # seconds; lifespan of presigned PUT URLs
 EVIDENCE_LOCAL_DIR=./tmp/evidence      # filesystem path for local uploads
+EVIDENCE_SCAN_ENABLED=true             # enable antivirus scans (ClamAV by default)
+EVIDENCE_SCAN_ENGINE=clamav
+EVIDENCE_SCAN_CLAMD_PATH=clamdscan     # override if clamdscan is not on PATH
+EVIDENCE_SCAN_TIMEOUT_MS=10000         # worker-side CLI timeout in ms
+EVIDENCE_SCAN_QUARANTINE_ON_ERROR=true # quarantine evidence when scans fail
+NOTIFICATION_SERVICE_URL=              # optional; POST endpoint for reviewer alerts
+NOTIFICATION_EVIDENCE_CHANNEL=evidence-reviewers
 REPORT_BUCKET=local-reports
 SCHEDULER_REFRESH_INTERVAL_MS=180000
 # Optional: select the default UI actor for policy workflows (falls back to seeded analyst)
@@ -133,9 +150,9 @@ VITE_POLICY_ACTOR_EMAIL=alex.mercier@example.com
   lookups. Access tokens are bearer JWTs (15 minute default expiry) signed with
   `JWT_SECRET`; refresh tokens expire after seven days.
 - **Password policy** – Registrations enforce a minimum character length (default 12) and
-  require upper/lowercase letters, a number, and a special character. Tweak
-  `AUTH_PASSWORD_MIN_LENGTH` (and the validator in
-  `apps/api/src/auth/dto/register.dto.ts`) to tighten or relax the rules.
+  configurable complexity. Adjust `AUTH_PASSWORD_MIN_LENGTH` for length and
+  `AUTH_PASSWORD_COMPLEXITY` (comma-separated mix of `lower`, `upper`, `digit`, `symbol`) to
+  mirror your password standard. The same rules apply to `/api/users/me/password`.
 - **RBAC** – Nest guards wrap every controller except health. Use the `@Roles()` decorator to
   scope endpoints to specific roles (`ADMIN`, `ANALYST`, `AUDITOR`, `READ_ONLY`). The seeded
   admin account (configurable via `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`) can invite or
@@ -184,6 +201,7 @@ VITE_POLICY_ACTOR_EMAIL=alex.mercier@example.com
 - `npm run lint` – Lints all projects.
 - `npm run test` – Executes Jest suites (currently placeholder).
 - `npm run prisma:generate` – Generates Prisma client for the API service.
+- `npm run test:db-smoke` – Runs Prisma migrations and seed scripts to validate schema drift in CI.
 - `npx nx test api` / `npx nx test web` – Run the backend/frontend Jest suites (auth + guard
   smoke tests included).
 

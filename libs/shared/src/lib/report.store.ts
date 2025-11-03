@@ -1,5 +1,14 @@
-import { randomUUID } from 'crypto';
 import type { ReportArtifactRecord } from './reporting.types';
+
+type CryptoLike = { randomUUID?: () => string };
+
+const generateId = (): string => {
+  const cryptoApi = (globalThis as { crypto?: CryptoLike }).crypto;
+  if (cryptoApi?.randomUUID) {
+    return cryptoApi.randomUUID();
+  }
+  return `report-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+};
 
 export class ReportStore {
   private readonly artifacts = new Map<string, ReportArtifactRecord>();
@@ -7,7 +16,7 @@ export class ReportStore {
   save(partial: Omit<ReportArtifactRecord, 'id' | 'createdAt'>): ReportArtifactRecord {
     const record: ReportArtifactRecord = {
       ...partial,
-      id: randomUUID(),
+      id: generateId(),
       createdAt: new Date().toISOString()
     };
 

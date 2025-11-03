@@ -2,6 +2,15 @@ import type { JobStatus } from './job-queue';
 
 export type ReportFormat = 'html' | 'pdf';
 
+export interface ReportArtifactMetadata {
+  version: string;
+  assessmentId: string;
+  generatedAt: string;
+  mediaType: string;
+  byteLength?: number;
+  bucket?: string;
+}
+
 export interface ReportJobPayload {
   assessmentId: string;
   formats: ReportFormat[];
@@ -17,6 +26,7 @@ export interface ReportArtifactRecord {
   filename: string;
   requestedBy: string;
   createdAt: string;
+  metadata: ReportArtifactMetadata;
 }
 
 export interface ReportJobResult {

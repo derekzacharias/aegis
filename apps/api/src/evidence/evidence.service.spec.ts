@@ -1,7 +1,10 @@
 import { BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   EvidenceIngestionStatus,
   EvidenceStatus,
+  EvidenceUploadStatus,
+  EvidenceScanStatus,
   ControlStatus,
   FrameworkFamily,
   Prisma
@@ -23,6 +26,11 @@ const prismaMock: any = {
     create: jest.fn()
   },
   evidenceUploadRequest: {
+    findUnique: jest.fn(),
+    update: jest.fn()
+  },
+  evidenceScan: {
+    create: jest.fn(),
     update: jest.fn()
   },
   framework: {
@@ -45,13 +53,19 @@ const storageService = {
   getMode: jest.fn().mockReturnValue('local'),
   getBucket: jest.fn().mockReturnValue('local-evidence'),
   getLocalDirectory: jest.fn().mockReturnValue('/tmp/evidence'),
+  getObjectMetadata: jest.fn(),
   createUploadToken: jest.fn(),
   resolveLocalPath: jest.fn((key: string) => `/tmp/evidence/${key}`)
 } as unknown as EvidenceStorageService;
 
 const queue = createJobQueue();
 
-const service = new EvidenceService(prismaMock as unknown as PrismaService, storageService, queue);
+const configGetMock = jest.fn();
+const configService = {
+  get: configGetMock
+} as unknown as ConfigService;
+
+let service: EvidenceService;
 
 const user: AuthenticatedUser = {
   id: 'user-1',
@@ -74,11 +88,29 @@ type EvidenceWithRelations = Prisma.EvidenceItemGetPayload<{
   };
 }>;
 
-describe('EvidenceService.createSimple', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
+beforeEach(() => {
+  jest.clearAllMocks();
+  queue.reset();
+  configGetMock.mockImplementation((key: string) => {
+    switch (key) {
+      case 'antivirus.enabled':
+        return true;
+      case 'antivirus.engineName':
+        return 'ClamAV';
+      default:
+        return undefined;
+    }
   });
 
+  service = new EvidenceService(
+    prismaMock as unknown as PrismaService,
+    storageService,
+    configService,
+    queue
+  );
+});
+
+describe('EvidenceService.createSimple', () => {
   it('creates evidence records with derived metadata', async () => {
     const now = new Date();
     prismaMock.framework.findMany.mockResolvedValueOnce([{ id: 'framework-1' }]);
@@ -226,6 +258,291 @@ describe('EvidenceService.createSimple', () => {
         sizeInKb: 1
       })
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('EvidenceService.confirmUpload', () => {
+  const uploadRequest = {
+    id: 'upload-1',
+    organizationId: 'org-1',
+    status: EvidenceUploadStatus.UPLOADED,
+    storageProvider: 'LOCAL' as const,
+    storageKey: 'organizations/org-1/evidence/sample.pdf',
+    fileName: 'sample.pdf',
+    contentType: 'application/pdf',
+    sizeInBytes: 2048,
+    checksum: 'sha256:abcd',
+    uploadAuthToken: 'token-123',
+    uploadedAt: new Date(),
+    requestedById: user.id,
+    uploadUrl: 'file:///tmp/evidence/sample.pdf'
+  };
+
+  const createdEvidence = {
+    id: 'evidence-1',
+    organizationId: 'org-1',
+    name: 'Policy',
+    storageUri: 'file:///tmp/evidence/sample.pdf',
+    storageKey: uploadRequest.storageKey,
+    storageProvider: 'LOCAL',
+    originalFilename: 'sample.pdf',
+    contentType: 'application/pdf',
+    fileSize: 2048,
+    checksum: 'sha256:abcd',
+    fileType: 'pdf',
+    sizeInKb: 2,
+    metadata: {},
+    uploadedById: user.id,
+    uploadedByEmail: user.email,
+    reviewerId: null,
+    reviewDue: null,
+    retentionPeriodDays: null,
+    retentionReason: null,
+    retentionExpiresAt: null,
+    status: EvidenceStatus.PENDING,
+    ingestionStatus: EvidenceIngestionStatus.PENDING,
+    ingestionNotes: null,
+    uploadedAt: new Date(),
+    nextAction: 'Pending analyst review',
+    displayControlIds: [],
+    displayFrameworkIds: [],
+    frameworks: [],
+    controls: [],
+    reviewer: null,
+    uploadedBy: null
+  } as unknown as Prisma.EvidenceItemGetPayload<{
+    include: {
+      reviewer: true;
+      uploadedBy: true;
+      frameworks: {
+        include: {
+          framework: true;
+        };
+      };
+      controls: {
+        include: {
+          assessmentControl: {
+            include: {
+              assessment: true;
+              control: true;
+            };
+          };
+        };
+      };
+    };
+  }>;
+
+  beforeEach(() => {
+    prismaMock.evidenceUploadRequest.findUnique.mockResolvedValue({ ...uploadRequest });
+    prismaMock.framework.findMany.mockResolvedValue([{ id: 'framework-1' }]);
+    prismaMock.assessmentControl.findMany.mockResolvedValue([]);
+    prismaMock.evidenceItem.create.mockResolvedValue({ ...createdEvidence });
+    prismaMock.evidenceScan.create.mockResolvedValue({ id: 'scan-job-1' });
+    storageService.getObjectMetadata.mockResolvedValue({
+      size: 2048,
+      checksum: 'sha256:abcd',
+      contentType: 'application/pdf'
+    });
+  });
+
+  it('creates scan metadata and enqueues ingestion job', async () => {
+    const enqueueSpy = jest.spyOn(queue, 'enqueue');
+
+    await service.confirmUpload(user, uploadRequest.id, {
+      name: 'Policy',
+      frameworkIds: ['framework-1'],
+      controlIds: [],
+      assessmentControlIds: [],
+      categories: [],
+      tags: []
+    });
+
+    expect(prismaMock.evidenceScan.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        evidenceId: 'evidence-1',
+        engine: 'ClamAV',
+        status: EvidenceScanStatus.PENDING
+      })
+    });
+
+    expect(enqueueSpy).toHaveBeenCalledWith('evidence.ingest', {
+      evidenceId: 'evidence-1',
+      scanId: 'scan-job-1',
+      storageUri: 'file:///tmp/evidence/sample.pdf',
+      storageKey: uploadRequest.storageKey,
+      storageProvider: 'LOCAL',
+      checksum: 'sha256:abcd',
+      requestedBy: user.email
+    });
+  });
+
+  it('skips queueing when antivirus is disabled', async () => {
+    configGetMock.mockImplementation((key: string) => {
+      switch (key) {
+        case 'antivirus.enabled':
+          return false;
+        case 'antivirus.engineName':
+          return 'ClamAV';
+        default:
+          return undefined;
+      }
+    });
+
+    const updatedRecord = {
+      ...createdEvidence,
+      ingestionStatus: EvidenceIngestionStatus.COMPLETED,
+      ingestionNotes: 'Scan skipped: antivirus disabled in this environment'
+    };
+
+    prismaMock.evidenceItem.update.mockResolvedValueOnce(updatedRecord);
+    const enqueueSpy = jest.spyOn(queue, 'enqueue');
+
+    const result = await service.confirmUpload(user, uploadRequest.id, {
+      name: 'Policy',
+      frameworkIds: ['framework-1'],
+      controlIds: [],
+      assessmentControlIds: [],
+      categories: [],
+      tags: []
+    });
+
+    expect(enqueueSpy).not.toHaveBeenCalled();
+    expect(prismaMock.evidenceScan.update).toHaveBeenCalledWith({
+      where: { id: 'scan-job-1' },
+      data: expect.objectContaining({
+        status: EvidenceScanStatus.CLEAN,
+        findings: expect.any(Object)
+      })
+    });
+    expect(result.ingestionStatus).toBe(EvidenceIngestionStatus.COMPLETED);
+  });
+});
+
+describe('EvidenceService.reprocess', () => {
+  const evidenceRecord = ({
+    id: 'evidence-1',
+    organizationId: 'org-1',
+    storageUri: 'file:///tmp/evidence/sample.pdf',
+    storageKey: 'organizations/org-1/evidence/sample.pdf',
+    storageProvider: 'LOCAL',
+    checksum: 'sha256:abcd',
+    fileSize: 2048,
+    ingestionStatus: EvidenceIngestionStatus.QUARANTINED,
+    ingestionNotes: 'Previous scan failed',
+    status: EvidenceStatus.QUARANTINED,
+    name: 'Policy',
+    originalFilename: 'sample.pdf',
+    contentType: 'application/pdf',
+    fileType: 'pdf',
+    sizeInKb: 2,
+    metadata: {},
+    uploadedById: user.id,
+    uploadedByEmail: user.email,
+    reviewerId: null,
+    reviewDue: null,
+    retentionPeriodDays: null,
+    retentionReason: null,
+    retentionExpiresAt: null,
+    uploadedAt: new Date(),
+    nextAction: 'Investigate',
+    displayControlIds: [],
+    displayFrameworkIds: [],
+    frameworks: [],
+    controls: [],
+    reviewer: null,
+    uploadedBy: null
+  } as unknown) as Prisma.EvidenceItemGetPayload<{
+    include: {
+      reviewer: true;
+      uploadedBy: true;
+      frameworks: {
+        include: {
+          framework: true;
+        };
+      };
+      controls: {
+        include: {
+          assessmentControl: {
+            include: {
+              assessment: true;
+              control: true;
+            };
+          };
+        };
+      };
+    };
+  }>;
+
+  beforeEach(() => {
+    prismaMock.evidenceItem.findUnique.mockResolvedValue({ ...evidenceRecord });
+    prismaMock.evidenceScan.create.mockResolvedValue({ id: 'scan-55' });
+  });
+
+  it('queues a re-scan job and updates ingestion metadata', async () => {
+    const updatedRecord = {
+      ...evidenceRecord,
+      ingestionStatus: EvidenceIngestionStatus.PENDING,
+      ingestionNotes: 'Re-scan queued: please verify',
+      lastScanStatus: EvidenceScanStatus.PENDING
+    };
+
+    prismaMock.evidenceItem.update.mockResolvedValueOnce(updatedRecord);
+    const enqueueSpy = jest.spyOn(queue, 'enqueue');
+
+    const result = await service.reprocess(user, evidenceRecord.id, {
+      reason: 'please verify'
+    });
+
+    expect(prismaMock.evidenceScan.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        evidenceId: evidenceRecord.id,
+        status: EvidenceScanStatus.PENDING
+      })
+    });
+    expect(prismaMock.evidenceItem.update).toHaveBeenCalledWith({
+      where: { id: evidenceRecord.id },
+      data: expect.objectContaining({
+        ingestionStatus: EvidenceIngestionStatus.PENDING,
+        lastScanStatus: EvidenceScanStatus.PENDING
+      }),
+      include: expect.any(Object)
+    });
+    expect(enqueueSpy).toHaveBeenCalledWith('evidence.ingest', expect.objectContaining({
+      evidenceId: evidenceRecord.id,
+      scanId: 'scan-55',
+      storageProvider: 'LOCAL'
+    }));
+    expect(result.ingestionStatus).toBe(EvidenceIngestionStatus.PENDING);
+  });
+
+  it('completes immediately when antivirus is disabled', async () => {
+    configGetMock.mockImplementation((key: string) => {
+      switch (key) {
+        case 'antivirus.enabled':
+          return false;
+        case 'antivirus.engineName':
+          return 'ClamAV';
+        default:
+          return undefined;
+      }
+    });
+
+    prismaMock.evidenceItem.update.mockResolvedValueOnce({
+      ...evidenceRecord,
+      ingestionStatus: EvidenceIngestionStatus.COMPLETED,
+      ingestionNotes: 'Re-scan skipped: antivirus disabled in this environment'
+    });
+
+    const enqueueSpy = jest.spyOn(queue, 'enqueue');
+
+    const record = await service.reprocess(user, evidenceRecord.id, {});
+
+    expect(enqueueSpy).not.toHaveBeenCalled();
+    expect(prismaMock.evidenceScan.update).toHaveBeenCalledWith({
+      where: { id: 'scan-55' },
+      data: expect.objectContaining({ status: EvidenceScanStatus.CLEAN })
+    });
+    expect(record.ingestionStatus).toBe(EvidenceIngestionStatus.COMPLETED);
   });
 });
 

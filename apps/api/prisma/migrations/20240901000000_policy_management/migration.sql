@@ -1,7 +1,15 @@
 -- Policy and procedure management core entities
-CREATE TYPE "PolicyVersionStatus" AS ENUM ('DRAFT', 'IN_REVIEW', 'APPROVED', 'REJECTED', 'ARCHIVED');
+DO $$ BEGIN
+    CREATE TYPE "PolicyVersionStatus" AS ENUM ('DRAFT', 'IN_REVIEW', 'APPROVED', 'REJECTED', 'ARCHIVED');
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TYPE "PolicyApprovalStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
+DO $$ BEGIN
+    CREATE TYPE "PolicyApprovalStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE "PolicyDocument" (
     "id" TEXT PRIMARY KEY,
@@ -63,6 +71,8 @@ CREATE TABLE "PolicyApproval" (
 
 ALTER TABLE "PolicyDocument"
     ADD CONSTRAINT "PolicyDocument_currentVersionId_fkey" FOREIGN KEY ("currentVersionId") REFERENCES "PolicyVersion"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+CREATE UNIQUE INDEX "PolicyDocument_currentVersionId_key" ON "PolicyDocument" ("currentVersionId");
 
 CREATE UNIQUE INDEX "PolicyVersion_policyId_versionNumber_key" ON "PolicyVersion" ("policyId", "versionNumber");
 

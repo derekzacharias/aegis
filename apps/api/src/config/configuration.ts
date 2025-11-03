@@ -23,6 +23,24 @@ const parseBoolean = (value: string | undefined, fallback: boolean) => {
   return fallback;
 };
 
+const parsePasswordComplexity = (value: string | undefined): string[] => {
+  const allowed = new Set(['lower', 'upper', 'digit', 'symbol']);
+  if (!value) {
+    return Array.from(allowed);
+  }
+
+  const parsed = value
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => allowed.has(entry));
+
+  if (!parsed.length) {
+    return Array.from(allowed);
+  }
+
+  return Array.from(new Set(parsed));
+};
+
 export default () => {
   const accessTokenTtlSeconds = parseNumber(process.env['AUTH_ACCESS_TOKEN_TTL'], 60 * 15);
   const refreshTokenTtlSeconds = parseNumber(
@@ -30,6 +48,9 @@ export default () => {
     60 * 60 * 24 * 7
   );
   const passwordMinLength = parseNumber(process.env['AUTH_PASSWORD_MIN_LENGTH'], 12);
+  const passwordComplexity = parsePasswordComplexity(process.env['AUTH_PASSWORD_COMPLEXITY']);
+  const tokenIssuer = process.env['AUTH_TOKEN_ISSUER'] ?? 'aegis-api';
+  const tokenAudience = process.env['AUTH_TOKEN_AUDIENCE'] ?? 'aegis-clients';
 
   const corsOrigins = (process.env['CORS_ORIGINS'] ?? 'http://localhost:4200')
     .split(',')
@@ -50,6 +71,20 @@ export default () => {
   const storageLocalDir =
     process.env['EVIDENCE_LOCAL_DIR'] ?? path.resolve(process.cwd(), 'tmp', 'evidence');
 
+  const antivirusEnabled = parseBoolean(
+    process.env['EVIDENCE_SCAN_ENABLED'],
+    (process.env['NODE_ENV'] ?? 'development') !== 'test'
+  );
+  const antivirusEngine = (process.env['EVIDENCE_SCAN_ENGINE'] ?? 'clamav').toLowerCase();
+  const antivirusEngineName = process.env['EVIDENCE_SCAN_ENGINE_NAME'] ?? 'ClamAV';
+  const antivirusHost = process.env['EVIDENCE_SCAN_HOST'] ?? '127.0.0.1';
+  const antivirusPort = parseNumber(process.env['EVIDENCE_SCAN_PORT'], 3310);
+  const antivirusTimeoutMs = parseNumber(process.env['EVIDENCE_SCAN_TIMEOUT_MS'], 10000);
+  const antivirusQuarantineOnError = parseBoolean(
+    process.env['EVIDENCE_SCAN_QUARANTINE_ON_ERROR'],
+    true
+  );
+
   return {
     environment: process.env['NODE_ENV'] ?? 'development',
     port: Number(process.env['PORT'] ?? 3333),
@@ -59,7 +94,10 @@ export default () => {
     auth: {
       accessTokenTtlSeconds,
       refreshTokenTtlSeconds,
-      passwordMinLength
+      passwordMinLength,
+      passwordComplexity,
+      tokenIssuer,
+      tokenAudience
     },
     cors: {
       origins: corsOrigins
@@ -74,6 +112,17 @@ export default () => {
       usePathStyle: storageUsePathStyle,
       uploadUrlTtlSeconds: storageUploadTtlSeconds,
       localDir: storageLocalDir
+    },
+    antivirus: {
+      enabled: antivirusEnabled,
+      engine: antivirusEngine,
+      engineName: antivirusEngineName,
+      quarantineOnError: antivirusQuarantineOnError,
+      clamav: {
+        host: antivirusHost,
+        port: antivirusPort,
+        timeoutMs: antivirusTimeoutMs
+      }
     },
     // Backwards compatibility for legacy consumers
     storageBucket,

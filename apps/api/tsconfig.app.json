@@ -1,11 +1,12 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "outDir": "../../dist/out-tsc",
+    "outDir": "../../dist/apps/api",
+    "module": "CommonJS",
     "types": ["node"],
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true
   },
   "exclude": ["**/*.spec.ts", "**/*.test.ts"],
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.d.ts"]
 }

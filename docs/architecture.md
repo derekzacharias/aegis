@@ -40,7 +40,8 @@
 ### Reporting
 - Report service enqueues jobs for HTML/PDF export via a shared in-memory queue (BullMQ/Redis pluggable in future).
 - API: `POST /api/reports` queues a job, `GET /api/reports` lists job status, `GET /api/reports/:id` returns metadata, and `GET /api/reports/:id/download` streams the rendered PDF (RBAC protected).
-- Worker consumes the `report.generate` queue, renders Handlebars templates, and exports PDFs with Puppeteer (stored under `tmp/reports/` until object storage integration).
+- Worker consumes the `report.generate` queue, renders hardened Handlebars templates, retries transient Chromium failures, and records immutable artifact metadata (schema version, assessment ID, generated-at timestamp, bucket, media type, byte size).
+- Renderer configuration is exposed via `REPORT_RENDERER_*` variables (timeout, attempts, sandbox flags, Chromium executable path, memory limit, template override). Local mode (`REPORT_RENDERER_MODE=local`) flips headless off, enables DevTools, and relaxes sandboxing for developer convenience; CI/prod defaults preserve sandboxing.
 
 ### User Profiles
 - Prisma-backed `User` records capture contact metadata (first/last name, job title, phone number, timezone, avatar URL, bio) plus audit trails in `UserProfileAudit`.

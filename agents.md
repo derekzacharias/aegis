@@ -2,6 +2,8 @@
 
 This document captures the automation agent capabilities that exist in the Aegis Compliance Control Center today. The goal is to keep a running ledger of what has been delivered so far so we have a grounded baseline before layering in broader orchestration and packaging work.
 
+We are actively building toward a framework-agnostic GRC platform where customers select the cyber standards they need—currently targeting DoD RMF, FedRAMP, NIST CSF, ISO 27001, HIPAA, and PCI DSS—so every agent investment should reinforce coverage and auditability once a framework is enabled. Automated assessment remains in the design phase—we are comparing resident agents versus SSH-driven execution, evaluating orchestration tooling such as Ansible and Chef InSpec to determine the right balance of coverage, deployment effort, and operational safety.
+
 ## Concept
 
 Automation agents are lightweight services and scripts that:
@@ -15,8 +17,10 @@ Automation agents are lightweight services and scripts that:
 ### Worker and Job Flow
 
 - A dedicated NestJS worker application (`apps/worker`) now boots through `WorkerModule`, wires centralized configuration, and registers processors for background jobs.
-- `ReportingProcessor` consumes the shared in-memory queue (`report.generate`), renders the Handlebars assessment template, exports HTML/PDF artifacts with Puppeteer, and stores them under `tmp/reports/` (with storage URIs recorded for API downloads). The processor now resolves assessment metadata directly through Prisma so report jobs always reflect the latest owners, framework memberships, and progress metrics without relying on stale in-memory stores.
-- `EvidenceProcessor` now validates the uploaded object (checksum + size), flips ingestion status to `PROCESSING`, runs the AV/quarantine stub, and records outcomes back to Prisma—successful scans land in `COMPLETED` while failures move evidence into `QUARANTINED` with history entries so reviewers immediately see next actions. When evidence is linked to assessments the agent emits audit events so lifecycle reports surface who remediated or quarantined artifacts.
+- `ReportingProcessor` consumes the shared in-memory queue (`report.generate`), renders the hardened Handlebars assessment template, exports HTML/PDF artifacts with sandbox-aware Puppeteer options, and stores them under `tmp/reports/` (with immutable storage URIs and metadata for API downloads). The processor resolves assessment metadata directly through Prisma so report jobs reflect the latest owners, framework memberships, and progress metrics, adds guardrails for user-supplied template overrides, enforces configurable timeouts/memory caps, and retries transient Chromium failures before recording durable artifact metadata (schema version, bucket, generated timestamp, media type, byte length).
+- `EvidenceProcessor` now streams artifacts through a real ClamAV engine (via the new `AntivirusService`), captures detailed scan telemetry in `EvidenceScan`, and mirrors results onto the parent evidence record (`lastScan*` fields). Clean scans auto-release quarantined evidence, while findings or engine failures push items into `QUARANTINED`, emit status-history rows, and notify reviewers through the notification bridge. Structured logs (`event=ingestion.*`) and lightweight metrics (`evidence.scan.*`) track throughput, detections, and failures. A reprocessing API (`POST /api/evidence/:id/reprocess`) lets analysts queue remediation follow-ups without manual database edits.
+
+- `ArtifactFetcher` abstracts local/S3 reads so antivirus scans operate on consistent streams regardless of storage mode. `NotificationService` now centralises evidence alert dispatch, and `MetricsService` standardises counter/timer logging ahead of Prometheus integration.
 - Shared queue/record stores live in `libs/shared` so API, worker, and tests reuse the same job lifecycle logic without a broker; swapping to Redis/BullMQ remains a follow-on.
 - `IntegrationProcessor` continues to orchestrate provider-specific outbound flows via `JiraIntegrationProvider` and `ServiceNowIntegrationProvider`, giving each connector a dedicated abstraction for `create`, `update`, and `sync` actions while retaining retry-friendly logging.
 - Worker bootstrap logs the configured queue name so we can trace which deployment the agent executor is targeting.
@@ -85,12 +89,14 @@ npm run dev:worker
 npm run dev:web
 
 # Run Prisma migrations (required for persisted auth/assessment/evidence flows)
-npx prisma migrate deploy --schema apps/api/prisma/schema.prisma
-npx prisma generate --schema apps/api/prisma/schema.prisma
+npm run db:migrate
+npm run prisma:generate
 
 # Seed baseline data (admin account, assessments, evidence samples)
-npx ts-node apps/api/prisma/seed.ts
+npm run prisma:seed
 ```
+
+> Make sure the local Postgres instance (e.g. `docker start aegis-postgres`) is running before you execute the migration or seed commands. Migrations are now idempotent—guards in the SQL scripts handle existing enums, constraints, and tables—so rerunning `npm run db:migrate` is safe after partial deploys or local resets.
 
 With all three services running you can queue report jobs from the Reports page, watch the worker render HTML/PDF artifacts, and review the Automation Agent activity tiles on the dashboard for context.
 
@@ -107,7 +113,7 @@ _Automation roadmap:_ the scheduler will eventually host a “session close-out�
 - API integration behaviour is covered by unit tests in `apps/api/src/integration/integration.service.spec.ts` and the reporting queue contract in `apps/api/src/reporting/reporting.service.spec.ts`.
 - Worker processors are validated via `apps/worker/src/workers/reporting.processor.spec.ts` (HTML/PDF lifecycle) and `apps/worker/src/reporting/report-template.spec.ts` (template rendering).
 - Connector setup, OAuth prerequisites, and webhook signing instructions live in `docs/integrations.md`. The Near-term backlog links to this guide for quick access.
-- Nx lint/test targets remain the preferred validation path; if the Nx daemon socket cannot start (e.g., `EPERM` on pseudo IPC), rerun with the daemon disabled once the environment allows it so automation-related regressions surface quickly.
+- Nx lint/test targets remain the preferred validation path. Use `npm run test:node` to exercise agent and API suites, and lean on `npm run test:dom` when debugging UI toggles that drive automation flows (see `docs/testing.md` for tips). If the Nx daemon socket cannot start (e.g., `EPERM` on pseudo IPC), rerun with the daemon disabled once the environment allows it so automation regressions surface quickly.
 
 ## Next Enhancements to Track
 

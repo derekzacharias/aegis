@@ -1,4 +1,5 @@
 import { ControlDefinition } from '../framework.types';
+import { iso27001Controls, iso27002Controls } from './iso-270-controls';
 import { nist80053Rev5Controls } from './nist-800-53-controls';
 
 const otherFrameworkControls: ControlDefinition[] = [
@@ -25,4 +26,9 @@ const otherFrameworkControls: ControlDefinition[] = [
   }
 ];
 
-export const controls: ControlDefinition[] = [...nist80053Rev5Controls, ...otherFrameworkControls];
+export const controls: ControlDefinition[] = [
+  ...nist80053Rev5Controls,
+  ...iso27001Controls,
+  ...iso27002Controls,
+  ...otherFrameworkControls
+];

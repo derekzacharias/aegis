@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
-import { PolicyActor } from './policy.types';
+import type { PolicyActor } from './policy.types';
 
 @Injectable()
 export class PolicyActorGuard implements CanActivate {
@@ -18,9 +18,13 @@ export class PolicyActorGuard implements CanActivate {
       .getRequest<Request & { actor?: PolicyActor }>();
 
     const headerActorId = request.header('x-actor-id');
-    const queryActorId = Array.isArray(request.query['actorId'])
-      ? request.query['actorId'][0]
-      : (request.query['actorId'] as string | undefined);
+    const rawQueryActorId = request.query['actorId'];
+    const queryActorId =
+      typeof rawQueryActorId === 'string'
+        ? rawQueryActorId
+        : Array.isArray(rawQueryActorId) && typeof rawQueryActorId[0] === 'string'
+        ? rawQueryActorId[0]
+        : undefined;
     const headerActorEmail = request.header('x-actor-email');
 
     const actorId = headerActorId ?? queryActorId;

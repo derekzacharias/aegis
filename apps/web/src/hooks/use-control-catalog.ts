@@ -26,6 +26,8 @@ export type ControlDefinition = {
   keywords?: string[];
   references?: string[];
   relatedControls?: string[];
+  tags?: string[];
+  metadata?: Record<string, unknown> | null;
 };
 
 export type ControlStatusSummary = {
@@ -74,6 +76,8 @@ export type ControlCatalogItem = ControlDefinition & {
   assessments: ControlAssessmentSummary[];
   evidence: ControlEvidenceSummary[];
   mappings: ControlMappingSummary[];
+  metadata?: Record<string, unknown> | null;
+  tags: string[];
 };
 
 export type ControlCatalogFacets = {

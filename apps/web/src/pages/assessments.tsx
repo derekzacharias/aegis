@@ -639,11 +639,8 @@ const AssessmentsPage = () => {
                       Updated {new Date(assessment.updatedAt).toLocaleString()}
                     </Text>
                   </VStack>
-                  <HStack spacing={2}>
-                    <Badge colorScheme={statusColors[assessment.status] ?? 'gray'}>
-                      {assessment.status}
-                    </Badge>
-                    <Menu>
+                  <VStack align="flex-end" spacing={2}>
+                    <Menu placement="bottom-end">
                       <MenuButton
                         as={IconButton}
                         aria-label="Change assessment status"
@@ -668,7 +665,10 @@ const AssessmentsPage = () => {
                         ))}
                       </MenuList>
                     </Menu>
-                  </HStack>
+                    <Badge colorScheme={statusColors[assessment.status] ?? 'gray'}>
+                      {assessment.status}
+                    </Badge>
+                  </VStack>
                 </HStack>
                 <VStack align="stretch" spacing={1}>
                   <Text fontSize="sm" color="gray.400">

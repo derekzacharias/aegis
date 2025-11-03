@@ -1,5 +1,9 @@
 -- Expand integration connection to support OAuth, webhooks, and mapping state
-CREATE TYPE "IntegrationConnectionStatus" AS ENUM ('PENDING', 'CONNECTED', 'ERROR');
+DO $$ BEGIN
+    CREATE TYPE "IntegrationConnectionStatus" AS ENUM ('PENDING', 'CONNECTED', 'ERROR');
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
 
 ALTER TABLE "IntegrationConnection"
     ADD COLUMN IF NOT EXISTS "oauthAccessToken" TEXT,

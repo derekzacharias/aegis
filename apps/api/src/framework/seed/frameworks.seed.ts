@@ -1,4 +1,5 @@
 import { FrameworkFamily } from '../framework.types';
+import { ISO_CONTROL_COUNT } from './iso-270-controls';
 
 export const frameworks = [
   {
@@ -32,6 +33,22 @@ export const frameworks = [
     description: 'Payment Card Industry Data Security Standard.',
     family: 'PCI',
     controlCount: 280
+  },
+  {
+    id: 'iso-27001-2022',
+    name: 'ISO/IEC 27001',
+    version: '2022',
+    description: 'Information security, cybersecurity and privacy protection — Information security management systems.',
+    family: 'ISO',
+    controlCount: ISO_CONTROL_COUNT
+  },
+  {
+    id: 'iso-27002-2022',
+    name: 'ISO/IEC 27002',
+    version: '2022',
+    description: 'Information security, cybersecurity and privacy protection — Information security controls.',
+    family: 'ISO',
+    controlCount: ISO_CONTROL_COUNT
   }
 ] satisfies Array<{
   id: string;

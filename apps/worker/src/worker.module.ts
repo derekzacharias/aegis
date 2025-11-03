@@ -14,6 +14,10 @@ import { EvidenceReviewReminderHandler } from './scheduler/handlers/evidence-rev
 import { RecurringAssessmentHandler } from './scheduler/handlers/recurring-assessment.handler';
 import { AgentHealthCheckHandler } from './scheduler/handlers/agent-health-check.handler';
 import { PrismaService } from './prisma.service';
+import { ArtifactFetcher } from './storage/artifact-fetcher';
+import { AntivirusService } from './antivirus/antivirus.service';
+import { NotificationService } from './notifications/notification.service';
+import { MetricsService } from './metrics/metrics.service';
 
 @Module({
   imports: [
@@ -25,6 +29,10 @@ import { PrismaService } from './prisma.service';
   providers: [
     PrismaService,
     ReportingProcessor,
+    ArtifactFetcher,
+    AntivirusService,
+    NotificationService,
+    MetricsService,
     EvidenceProcessor,
     JiraIntegrationProvider,
     ServiceNowIntegrationProvider,

@@ -35,6 +35,10 @@ model User {
   lastName                String?
   passwordHash            String?
   refreshTokenHash        String?
+  refreshTokenId          String?
+  refreshTokenIssuedAt    DateTime?
+  refreshTokenInvalidatedAt DateTime?
+  passwordChangedAt       DateTime?
   lastLoginAt             DateTime?
   phoneNumber             String?
   jobTitle                String?
@@ -244,6 +248,13 @@ model EvidenceItem {
   status              EvidenceStatus               @default(PENDING)
   ingestionStatus     EvidenceIngestionStatus      @default(PENDING)
   ingestionNotes      String?
+  lastScanStatus      EvidenceScanStatus?
+  lastScanAt          DateTime?
+  lastScanEngine      String?
+  lastScanSignatureVersion String?
+  lastScanNotes       String?
+  lastScanDurationMs  Int?
+  lastScanBytes       Int?
   lastStatusChangeAt  DateTime                     @default(now())
   lastReviewed        DateTime?
   nextAction          String?
@@ -253,6 +264,7 @@ model EvidenceItem {
   frameworks          EvidenceFramework[]
   mappingHints        ControlMappingEvidenceHint[]
   statusHistory       EvidenceStatusHistory[]
+  scans               EvidenceScan[]
 }
 
 model EvidenceUploadRequest {
@@ -291,6 +303,27 @@ model EvidenceStatusHistory {
   changedAt   DateTime        @default(now())
   changedBy   User?           @relation("EvidenceStatusChangedBy", fields: [changedById], references: [id])
   changedById String?
+}
+
+model EvidenceScan {
+  id                String             @id @default(cuid())
+  evidence          EvidenceItem       @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+  evidenceId        String
+  status            EvidenceScanStatus @default(PENDING)
+  engine            String
+  engineVersion     String?
+  signatureVersion  String?
+  startedAt         DateTime           @default(now())
+  completedAt       DateTime?
+  durationMs        Int?
+  bytesScanned      Int?
+  findings          Json?
+  failureReason     String?
+  quarantined       Boolean            @default(false)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([evidenceId])
 }
 
 model EvidenceFramework {
@@ -496,6 +529,7 @@ enum FrameworkFamily {
   NIST
   CIS
   PCI
+  ISO
   CUSTOM
 }
 
@@ -562,6 +596,14 @@ enum EvidenceIngestionStatus {
   PROCESSING
   COMPLETED
   QUARANTINED
+}
+
+enum EvidenceScanStatus {
+  PENDING
+  RUNNING
+  CLEAN
+  INFECTED
+  FAILED
 }
 
 enum TaskStatus {

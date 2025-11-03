@@ -32,7 +32,15 @@ describe('UserService', () => {
   };
 
   const mockConfig: Partial<ConfigService> = {
-    get: jest.fn().mockReturnValue(12)
+    get: jest.fn((key: string) => {
+      if (key === 'auth.passwordMinLength') {
+        return 12;
+      }
+      if (key === 'auth.passwordComplexity') {
+        return ['lower', 'upper', 'digit', 'symbol'];
+      }
+      return undefined;
+    })
   };
 
   const service = new UserService(
@@ -120,7 +128,13 @@ describe('UserService', () => {
 
       expect(mockPrisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
-        data: expect.objectContaining({ refreshTokenHash: null })
+        data: expect.objectContaining({
+          refreshTokenHash: null,
+          refreshTokenId: null,
+          refreshTokenIssuedAt: null,
+          refreshTokenInvalidatedAt: expect.any(Date),
+          passwordChangedAt: expect.any(Date)
+        })
       });
 
       expect(mockPrisma.userProfileAudit.create).toHaveBeenCalled();
@@ -134,6 +148,18 @@ describe('UserService', () => {
         service.changePassword('user-1', {
           currentPassword: 'WrongPass!1',
           newPassword: 'AnotherPass!123'
+        })
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('enforces password complexity for new passwords', async () => {
+      const passwordHash = await hash('Password!123', 12);
+      mockPrisma.user.findUnique.mockResolvedValueOnce({ id: 'user-1', passwordHash });
+
+      await expect(
+        service.changePassword('user-1', {
+          currentPassword: 'Password!123',
+          newPassword: 'alllowercase'
         })
       ).rejects.toBeInstanceOf(BadRequestException);
     });

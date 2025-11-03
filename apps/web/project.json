@@ -15,6 +15,7 @@
     "serve": {
       "executor": "@nx/vite:dev-server",
       "options": {
+        "buildTarget": "web:build",
         "configFile": "apps/web/vite.config.ts",
         "port": 4200
       }

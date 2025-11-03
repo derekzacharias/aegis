@@ -7,6 +7,7 @@ export type EvidenceIngestionStatus =
   | 'QUARANTINED';
 
 export type EvidenceStorageProvider = 'S3' | 'LOCAL';
+export type EvidenceScanStatus = 'PENDING' | 'RUNNING' | 'CLEAN' | 'INFECTED' | 'FAILED';
 
 export interface EvidencePerson {
   id: string;
@@ -69,6 +70,13 @@ export interface EvidenceRecord {
   uploadedBy: EvidencePerson | null;
   nextAction: string | null;
   ingestionNotes: string | null;
+  lastScanStatus: EvidenceScanStatus | null;
+  lastScanAt: string | null;
+  lastScanEngine: string | null;
+  lastScanSignatureVersion: string | null;
+  lastScanSummary: string | null;
+  lastScanDurationMs: number | null;
+  lastScanBytes: number | null;
 }
 
 export interface EvidenceUploadRequestView {
@@ -85,7 +93,10 @@ export interface EvidenceUploadRequestView {
 
 export interface EvidenceIngestionJobPayload {
   evidenceId: string;
+  scanId: string;
   storageUri: string;
   storageKey: string;
+  storageProvider: EvidenceStorageProvider;
   checksum?: string;
+  requestedBy?: string;
 }

@@ -13,6 +13,11 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { AuthenticatedUser } from '../auth/types/auth.types';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
+import {
+  DEFAULT_PASSWORD_COMPLEXITY,
+  PasswordComplexityRule,
+  getPasswordPolicyError
+} from '../auth/utils/password.utils';
 
 @Injectable()
 export class UserService {
@@ -126,23 +131,32 @@ export class UserService {
       throw new BadRequestException('The current password is incorrect');
     }
 
-    const minLength = this.configService.get<number>('auth.passwordMinLength') ?? 12;
-
-    if (payload.newPassword.length < minLength) {
-      throw new BadRequestException(`New password must be at least ${minLength} characters long`);
-    }
-
     if (await compare(payload.newPassword, user.passwordHash)) {
       throw new BadRequestException('New password must be different from the current password');
     }
 
+    const minLength = this.configService.get<number>('auth.passwordMinLength') ?? 12;
+    const complexityRules =
+      this.configService.get<PasswordComplexityRule[]>('auth.passwordComplexity') ??
+      DEFAULT_PASSWORD_COMPLEXITY;
+    const policyError = getPasswordPolicyError(payload.newPassword, minLength, complexityRules);
+
+    if (policyError) {
+      throw new BadRequestException(policyError);
+    }
+
     const newHash = await hash(payload.newPassword, 12);
+    const passwordChangedAt = new Date();
 
     await this.prisma.user.update({
       where: { id: userId },
       data: {
         passwordHash: newHash,
-        refreshTokenHash: null
+        passwordChangedAt,
+        refreshTokenHash: null,
+        refreshTokenId: null,
+        refreshTokenIssuedAt: null,
+        refreshTokenInvalidatedAt: passwordChangedAt
       }
     });
 

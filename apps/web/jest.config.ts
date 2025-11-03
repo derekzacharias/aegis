@@ -1,5 +1,7 @@
 /* eslint-disable */
-export default {
+import { withJsdomEnvironment } from '../../tools/testing/jest-config';
+
+export default withJsdomEnvironment({
   displayName: 'web',
   preset: '../../jest.preset.js',
   transform: {
@@ -13,6 +15,5 @@ export default {
   },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
   coverageDirectory: '../../coverage/apps/web',
-  testEnvironment: 'jsdom',
   setupFilesAfterEnv: ['<rootDir>/src/test-setup.ts']
-};
+});

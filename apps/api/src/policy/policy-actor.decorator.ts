@@ -3,13 +3,13 @@ import {
   ExecutionContext,
   InternalServerErrorException
 } from '@nestjs/common';
-import { PolicyActor } from './policy.types';
+import type { PolicyActor as PolicyActorContext } from './policy.types';
 
 export const PolicyActor = createParamDecorator(
-  (_data: unknown, ctx: ExecutionContext): PolicyActor => {
+  (_data: unknown, ctx: ExecutionContext): PolicyActorContext => {
     const request = ctx
       .switchToHttp()
-      .getRequest<{ actor?: PolicyActor }>();
+      .getRequest<{ actor?: PolicyActorContext }>();
 
     if (!request.actor) {
       throw new InternalServerErrorException(

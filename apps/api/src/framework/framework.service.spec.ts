@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { FrameworkService } from './framework.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -12,7 +12,8 @@ describe('FrameworkService', () => {
         findMany: jest.fn(),
         findFirst: jest.fn(),
         create: jest.fn(),
-        update: jest.fn()
+        update: jest.fn(),
+        delete: jest.fn()
       },
       control: {
         count: jest.fn(),
@@ -27,7 +28,15 @@ describe('FrameworkService', () => {
         create: jest.fn()
       },
       assessmentControl: {
-        groupBy: jest.fn()
+        groupBy: jest.fn(),
+        count: jest.fn()
+      },
+      assessmentFramework: {
+        count: jest.fn()
+      },
+      evidenceFramework: {
+        count: jest.fn(),
+        deleteMany: jest.fn()
       },
       $transaction: jest.fn().mockImplementation(async (callback: any) => callback(prisma))
     };
@@ -77,7 +86,10 @@ describe('FrameworkService', () => {
     jest.useFakeTimers().setSystemTime(new Date('2024-05-01T12:00:00.000Z'));
     const result = await service.list('org-1');
 
-    expect(result).toHaveLength(4);
+    expect(result).toHaveLength(6);
+    expect(result.map((framework) => framework.id)).toEqual(
+      expect.arrayContaining(['iso-27001-2022', 'iso-27002-2022'])
+    );
     expect(result[0].status).toEqual('PUBLISHED');
     expect(result[0].createdAt).toEqual('2024-05-01T12:00:00.000Z');
   });
@@ -118,7 +130,7 @@ describe('FrameworkService', () => {
         references: ['nist-sp-800-53'],
         relatedControls: [],
         tags: ['baseline'],
-        metadata: null,
+        metadata: { clause: 'A.5.1' },
         sourceMappings: [
           {
             id: 'mapping-1',
@@ -191,6 +203,7 @@ describe('FrameworkService', () => {
     expect(result.facets.families[0]).toEqual({ value: 'Risk Assessment', count: 1 });
     expect(result.items[0].mappings).toHaveLength(1);
     expect(result.items[0].statusSummary[0]).toEqual({ status: 'SATISFIED', count: 1 });
+    expect(result.items[0].metadata?.['clause']).toEqual('A.5.1');
   });
 
   it('throws when publishing without controls', async () => {
@@ -254,5 +267,111 @@ describe('FrameworkService', () => {
       }
     });
     expect(result.status).toEqual('PUBLISHED');
+  });
+
+  it('deletes a custom framework when no dependencies exist', async () => {
+    prisma.framework.findFirst.mockResolvedValue({
+      id: 'framework-custom',
+      organizationId: 'org-1',
+      isCustom: true
+    });
+    prisma.assessmentFramework.count.mockResolvedValue(0);
+    prisma.assessmentControl.count.mockResolvedValue(0);
+    prisma.evidenceFramework.count.mockResolvedValue(0);
+    prisma.control.findMany.mockResolvedValue([{ id: 'ctrl-1' }, { id: 'ctrl-2' }]);
+
+    await service.deleteCustomFramework('org-1', 'framework-custom');
+
+    expect(prisma.controlMapping.deleteMany).toHaveBeenCalledWith({
+      where: {
+        OR: [
+          { sourceControlId: { in: ['ctrl-1', 'ctrl-2'] } },
+          { targetControlId: { in: ['ctrl-1', 'ctrl-2'] } }
+        ]
+      }
+    });
+    expect(prisma.control.deleteMany).toHaveBeenCalledWith({ where: { frameworkId: 'framework-custom' } });
+    expect(prisma.evidenceFramework.deleteMany).toHaveBeenCalledWith({ where: { frameworkId: 'framework-custom' } });
+    expect(prisma.framework.delete).toHaveBeenCalledWith({ where: { id: 'framework-custom' } });
+  });
+
+  it('prevents deletion for non-custom frameworks', async () => {
+    prisma.framework.findFirst.mockResolvedValue({
+      id: 'framework-seed',
+      organizationId: 'org-1',
+      isCustom: false
+    });
+
+    await expect(
+      service.deleteCustomFramework('org-1', 'framework-seed')
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('prevents deletion when framework is linked to assessments', async () => {
+    prisma.framework.findFirst.mockResolvedValue({
+      id: 'framework-custom',
+      organizationId: 'org-1',
+      isCustom: true
+    });
+    prisma.assessmentFramework.count.mockResolvedValue(1);
+    prisma.assessmentControl.count.mockResolvedValue(0);
+    prisma.evidenceFramework.count.mockResolvedValue(0);
+
+    await expect(
+      service.deleteCustomFramework('org-1', 'framework-custom')
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('deletes a custom framework when no dependencies exist', async () => {
+    prisma.framework.findFirst.mockResolvedValue({
+      id: 'framework-custom',
+      organizationId: 'org-1',
+      isCustom: true
+    });
+    prisma.assessmentFramework.count.mockResolvedValue(0);
+    prisma.assessmentControl.count.mockResolvedValue(0);
+    prisma.evidenceFramework.count.mockResolvedValue(0);
+    prisma.control.findMany.mockResolvedValue([{ id: 'ctrl-1' }, { id: 'ctrl-2' }]);
+
+    await service.deleteCustomFramework('org-1', 'framework-custom');
+
+    expect(prisma.controlMapping.deleteMany).toHaveBeenCalledWith({
+      where: {
+        OR: [
+          { sourceControlId: { in: ['ctrl-1', 'ctrl-2'] } },
+          { targetControlId: { in: ['ctrl-1', 'ctrl-2'] } }
+        ]
+      }
+    });
+    expect(prisma.control.deleteMany).toHaveBeenCalledWith({ where: { frameworkId: 'framework-custom' } });
+    expect(prisma.evidenceFramework.deleteMany).toHaveBeenCalledWith({ where: { frameworkId: 'framework-custom' } });
+    expect(prisma.framework.delete).toHaveBeenCalledWith({ where: { id: 'framework-custom' } });
+  });
+
+  it('prevents deletion when framework is not custom', async () => {
+    prisma.framework.findFirst.mockResolvedValue({
+      id: 'framework-seed',
+      organizationId: 'org-1',
+      isCustom: false
+    });
+
+    await expect(service.deleteCustomFramework('org-1', 'framework-seed')).rejects.toBeInstanceOf(
+      NotFoundException
+    );
+  });
+
+  it('prevents deletion when framework is linked to assessments', async () => {
+    prisma.framework.findFirst.mockResolvedValue({
+      id: 'framework-custom',
+      organizationId: 'org-1',
+      isCustom: true
+    });
+    prisma.assessmentFramework.count.mockResolvedValue(1);
+    prisma.assessmentControl.count.mockResolvedValue(0);
+    prisma.evidenceFramework.count.mockResolvedValue(0);
+
+    await expect(service.deleteCustomFramework('org-1', 'framework-custom')).rejects.toBeInstanceOf(
+      BadRequestException
+    );
   });
 });

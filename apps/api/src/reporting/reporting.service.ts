@@ -112,7 +112,10 @@ export class ReportingService {
     }
 
     const stream = createReadStream(filePath);
-    return new StreamableFile(stream);
+    return new StreamableFile(stream, {
+      type: artifact.metadata.mediaType,
+      disposition: `attachment; filename="${artifact.filename}"`
+    });
   }
 
   private toView(job: JobRecord<ReportJobPayload, ReportJobResult>): ReportJobView {

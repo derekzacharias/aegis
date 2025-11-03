@@ -28,6 +28,7 @@ import { UpdateEvidenceStatusDto } from './dto/update-evidence-status.dto';
 import { CreateEvidenceDto } from './dto/create-evidence.dto';
 import { UpdateEvidenceMetadataDto } from './dto/update-evidence-metadata.dto';
 import { UpdateEvidenceLinksDto } from './dto/update-evidence-links.dto';
+import { ReprocessEvidenceDto } from './dto/reprocess-evidence.dto';
 
 @Roles(UserRole.READ_ONLY, UserRole.ANALYST, UserRole.AUDITOR, UserRole.ADMIN)
 @Controller('evidence')
@@ -54,6 +55,16 @@ export class EvidenceController {
     @Body() payload: CreateEvidenceDto
   ): Promise<EvidenceRecord> {
     return this.evidenceService.createSimple(user, payload);
+  }
+
+  @Roles(UserRole.ANALYST, UserRole.ADMIN)
+  @Post(':id/reprocess')
+  async reprocess(
+    @Param('id') evidenceId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() payload: ReprocessEvidenceDto
+  ): Promise<EvidenceRecord> {
+    return this.evidenceService.reprocess(user, evidenceId, payload);
   }
 
   @Roles(UserRole.ANALYST, UserRole.ADMIN)

@@ -84,16 +84,34 @@ ALTER TABLE "EvidenceItem"
     ALTER COLUMN "contentType" SET NOT NULL,
     ALTER COLUMN "fileSize" SET NOT NULL;
 
-ALTER TABLE "EvidenceItem"
-    ADD CONSTRAINT "EvidenceItem_reviewerId_fkey"
-        FOREIGN KEY ("reviewerId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'EvidenceItem_reviewerId_fkey'
+    ) THEN
+        ALTER TABLE "EvidenceItem"
+            ADD CONSTRAINT "EvidenceItem_reviewerId_fkey"
+                FOREIGN KEY ("reviewerId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+END $$;
 
-ALTER TABLE "EvidenceItem"
-    ADD CONSTRAINT "EvidenceItem_uploadRequestId_fkey"
-        FOREIGN KEY ("uploadRequestId") REFERENCES "EvidenceUploadRequest"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'EvidenceItem_uploadRequestId_fkey'
+    ) THEN
+        ALTER TABLE "EvidenceItem"
+            ADD CONSTRAINT "EvidenceItem_uploadRequestId_fkey"
+                FOREIGN KEY ("uploadRequestId") REFERENCES "EvidenceUploadRequest"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+END $$;
 
-ALTER TABLE "EvidenceItem"
-    ADD CONSTRAINT "EvidenceItem_uploadRequestId_unique" UNIQUE ("uploadRequestId");
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'EvidenceItem_uploadRequestId_unique'
+    ) THEN
+        ALTER TABLE "EvidenceItem"
+            ADD CONSTRAINT "EvidenceItem_uploadRequestId_unique" UNIQUE ("uploadRequestId");
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS "EvidenceItem_reviewer_idx"
     ON "EvidenceItem"("reviewerId");

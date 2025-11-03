@@ -283,7 +283,8 @@ export class CrosswalkService {
       id: control.id,
       frameworkId: control.frameworkId,
       title: control.title,
-      family: control.family
+      family: control.family,
+      metadata: this.parseMetadata(control.metadata)
     };
   }
 
@@ -295,6 +296,13 @@ export class CrosswalkService {
       score: Number(hint.score.toFixed(3)),
       evidenceId: hint.evidenceId ?? undefined
     };
+  }
+
+  private parseMetadata(value: Control['metadata']): Record<string, unknown> | undefined {
+    if (!value || typeof value !== 'object') {
+      return undefined;
+    }
+    return value as Record<string, unknown>;
   }
 
   private buildTokenProfile(control: Control): TokenProfile {
