@@ -16,6 +16,21 @@ export interface IntegrationMetrics {
   projectsMapped: number;
 }
 
+export interface IntegrationTaskSnapshot {
+  taskId: string;
+  externalId: string;
+  provider: IntegrationProvider;
+  organizationId: string;
+  summary: string;
+  status: string;
+  priority: string;
+  link: string | null;
+  projectKey: string | null;
+  assessmentId: string | null;
+  updatedAt: string;
+  lastPayload: Record<string, unknown>;
+}
+
 export interface IntegrationWebhookMetadata {
   secret: string | null;
   url: string | null;

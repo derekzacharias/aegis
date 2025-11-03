@@ -69,6 +69,10 @@ describe('PolicyService', () => {
       update: MockFn;
       updateMany: MockFn;
     };
+    policyVersionFramework: {
+      deleteMany: MockFn;
+      createMany: MockFn;
+    };
     policyApproval: {
       deleteMany: MockFn;
       upsert: MockFn;
@@ -80,13 +84,24 @@ describe('PolicyService', () => {
       findMany: MockFn;
       findFirst: MockFn;
     };
+    framework: {
+      findMany: MockFn;
+    };
+    policyAuditLog: {
+      create: MockFn;
+    };
     $transaction: MockFn;
   };
   let storage: PolicyStorageService;
   let tx: {
     policyVersion: {
+      create: MockFn;
       update: MockFn;
       updateMany: MockFn;
+    };
+    policyVersionFramework: {
+      deleteMany: MockFn;
+      createMany: MockFn;
     };
     policyApproval: {
       deleteMany: MockFn;
@@ -97,6 +112,9 @@ describe('PolicyService', () => {
     };
     policyDocument: {
       update: MockFn;
+    };
+    policyAuditLog: {
+      create: MockFn;
     };
   };
 
@@ -121,8 +139,13 @@ describe('PolicyService', () => {
   beforeEach(() => {
     tx = {
       policyVersion: {
+        create: jest.fn(),
         update: jest.fn(),
         updateMany: jest.fn()
+      },
+      policyVersionFramework: {
+        deleteMany: jest.fn(),
+        createMany: jest.fn()
       },
       policyApproval: {
         deleteMany: jest.fn(),
@@ -133,6 +156,9 @@ describe('PolicyService', () => {
       },
       policyDocument: {
         update: jest.fn()
+      },
+      policyAuditLog: {
+        create: jest.fn()
       }
     };
 
@@ -149,6 +175,10 @@ describe('PolicyService', () => {
         update: jest.fn(),
         updateMany: jest.fn()
       },
+      policyVersionFramework: {
+        deleteMany: jest.fn(),
+        createMany: jest.fn()
+      },
       policyApproval: {
         deleteMany: jest.fn(),
         upsert: jest.fn(),
@@ -159,6 +189,12 @@ describe('PolicyService', () => {
       user: {
         findMany: jest.fn(),
         findFirst: jest.fn()
+      },
+      framework: {
+        findMany: jest.fn()
+      },
+      policyAuditLog: {
+        create: jest.fn()
       },
       $transaction: jest.fn(async (callback: (client: typeof tx) => Promise<void> | void) => {
         await callback(tx);

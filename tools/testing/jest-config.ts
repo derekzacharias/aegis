@@ -1,4 +1,4 @@
-import type { Config } from 'jest';
+import type { Config } from '@jest/types';
 
 type SupportedEnvironment = 'node' | 'jsdom';
 
@@ -6,10 +6,12 @@ const JSDOM_SETUP_PATH = '<rootDir>/../../tools/testing/setup-jsdom.ts';
 
 const unique = <T,>(items: T[]): T[] => Array.from(new Set(items));
 
+type JestConfig = Config.InitialOptions;
+
 const resolveSetupFiles = (
   environment: SupportedEnvironment,
-  setupFilesAfterEnv: Config['setupFilesAfterEnv']
-): Config['setupFilesAfterEnv'] | undefined => {
+  setupFilesAfterEnv: JestConfig['setupFilesAfterEnv']
+): JestConfig['setupFilesAfterEnv'] | undefined => {
   const normalized = setupFilesAfterEnv ?? [];
 
   if (environment !== 'jsdom') {
@@ -22,8 +24,8 @@ const resolveSetupFiles = (
 
 export const withJestEnvironment = (
   environment: SupportedEnvironment,
-  config: Config.InitialOptions
-): Config.InitialOptions => {
+  config: JestConfig
+): JestConfig => {
   const setupFilesAfterEnv = resolveSetupFiles(environment, config.setupFilesAfterEnv);
 
   return {
@@ -33,8 +35,8 @@ export const withJestEnvironment = (
   };
 };
 
-export const withNodeEnvironment = (config: Config.InitialOptions): Config.InitialOptions =>
+export const withNodeEnvironment = (config: JestConfig): JestConfig =>
   withJestEnvironment('node', config);
 
-export const withJsdomEnvironment = (config: Config.InitialOptions): Config.InitialOptions =>
+export const withJsdomEnvironment = (config: JestConfig): JestConfig =>
   withJestEnvironment('jsdom', config);

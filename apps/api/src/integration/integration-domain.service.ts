@@ -18,6 +18,7 @@ export interface IntegrationTaskSnapshot {
   taskId: string;
   externalId: string;
   provider: IntegrationProvider;
+  organizationId: string;
   summary: string;
   status: string;
   priority: string;
@@ -35,9 +36,10 @@ export class IntegrationDomainService {
   upsertFromWebhook(
     provider: IntegrationProvider,
     event: NormalizedIntegrationEvent,
-    mapping: IntegrationMappingPreferences
+    mapping: IntegrationMappingPreferences,
+    organizationId: string
   ): IntegrationTaskSnapshot {
-    const key = this.getTaskKey(provider, event.externalId);
+    const key = this.getTaskKey(organizationId, provider, event.externalId);
     const now = event.occurredAt ?? new Date().toISOString();
     const status =
       mapping.statusMapping[event.status] ?? mapping.statusMapping.default ?? 'pending';
@@ -48,6 +50,7 @@ export class IntegrationDomainService {
       taskId: key,
       externalId: event.externalId,
       provider,
+      organizationId,
       summary: event.summary,
       status,
       priority,
@@ -62,8 +65,8 @@ export class IntegrationDomainService {
     return snapshot;
   }
 
-  getMetrics(provider: IntegrationProvider) {
-    const list = Array.from(this.tasks.values()).filter((task) => task.provider === provider);
+  getMetrics(provider: IntegrationProvider, organizationId: string) {
+    const list = this.listTasks(provider, organizationId);
     const projects = new Set(
       list.map((task) => task.projectKey).filter((value): value is string => Boolean(value))
     );
@@ -74,15 +77,31 @@ export class IntegrationDomainService {
     };
   }
 
-  listTasks() {
-    return Array.from(this.tasks.values());
+  listTasks(provider?: IntegrationProvider, organizationId?: string) {
+    const list = Array.from(this.tasks.values());
+    if (!provider && !organizationId) {
+      return list;
+    }
+    return list.filter((task) => {
+      if (provider && task.provider !== provider) {
+        return false;
+      }
+      if (organizationId && task.organizationId !== organizationId) {
+        return false;
+      }
+      return true;
+    });
   }
 
   clear() {
     this.tasks.clear();
   }
 
-  private getTaskKey(provider: IntegrationProvider, externalId: string) {
-    return `${provider.toLowerCase()}-${externalId}`;
+  private getTaskKey(
+    organizationId: string,
+    provider: IntegrationProvider,
+    externalId: string
+  ) {
+    return `${organizationId}:${provider.toLowerCase()}:${externalId}`;
   }
 }

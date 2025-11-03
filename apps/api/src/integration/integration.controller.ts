@@ -12,6 +12,8 @@ import {
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { AuthenticatedUser } from '../auth/types/auth.types';
 import { ConnectIntegrationDto } from './dto/connect-integration.dto';
 import { UpdateMappingDto } from './dto/update-mapping.dto';
 import { InitiateOAuthDto } from './dto/initiate-oauth.dto';
@@ -20,6 +22,7 @@ import {
   INTEGRATION_PROVIDERS,
   IntegrationDetail,
   IntegrationProvider,
+  IntegrationTaskSnapshot,
   IntegrationSummary
 } from './integration.types';
 import { IntegrationService } from './integration.service';
@@ -30,19 +33,36 @@ export class IntegrationController {
   constructor(private readonly integrationService: IntegrationService) {}
 
   @Get()
-  async list(): Promise<IntegrationSummary[]> {
-    return this.integrationService.list();
+  async list(@CurrentUser() user: AuthenticatedUser): Promise<IntegrationSummary[]> {
+    return this.integrationService.list(user.organizationId);
   }
 
   @Get(':provider')
-  async detail(@Param('provider') providerParam: string): Promise<IntegrationDetail> {
-    return this.integrationService.detail(this.parseProvider(providerParam));
+  async detail(
+    @Param('provider') providerParam: string,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<IntegrationDetail> {
+    return this.integrationService.detail(user.organizationId, this.parseProvider(providerParam));
+  }
+
+  @Get(':provider/tasks')
+  async listTasks(
+    @Param('provider') providerParam: string,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<IntegrationTaskSnapshot[]> {
+    return this.integrationService.listTasks(
+      this.parseProvider(providerParam),
+      user.organizationId
+    );
   }
 
   @Put()
   @Roles(UserRole.ADMIN)
-  async connect(@Body() payload: ConnectIntegrationDto): Promise<IntegrationDetail> {
-    return this.integrationService.upsert({
+  async connect(
+    @Body() payload: ConnectIntegrationDto,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<IntegrationDetail> {
+    return this.integrationService.upsert(user.organizationId, {
       provider: payload.provider,
       baseUrl: payload.baseUrl,
       clientId: payload.clientId,
@@ -53,7 +73,10 @@ export class IntegrationController {
 
   @Patch('mapping')
   @Roles(UserRole.ADMIN)
-  async updateMapping(@Body() payload: UpdateMappingDto): Promise<IntegrationDetail> {
+  async updateMapping(
+    @Body() payload: UpdateMappingDto,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<IntegrationDetail> {
     const mapping = {
       projectKey: payload.mapping.projectKey ?? null,
       defaultIssueType: payload.mapping.defaultIssueType,
@@ -62,7 +85,7 @@ export class IntegrationController {
       priorityMapping: this.entriesToRecord(payload.mapping.priorityMapping, 'medium')
     };
 
-    return this.integrationService.updateMapping({
+    return this.integrationService.updateMapping(user.organizationId, {
       provider: payload.provider,
       mapping
     });
@@ -70,8 +93,11 @@ export class IntegrationController {
 
   @Post('oauth/initiate')
   @Roles(UserRole.ADMIN)
-  async initiateOAuth(@Body() payload: InitiateOAuthDto) {
-    return this.integrationService.initiateOAuth({
+  async initiateOAuth(
+    @Body() payload: InitiateOAuthDto,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.integrationService.initiateOAuth(user.organizationId, {
       provider: payload.provider,
       redirectUri: payload.redirectUri,
       scopes: payload.scopes
@@ -80,8 +106,11 @@ export class IntegrationController {
 
   @Post('oauth/complete')
   @Roles(UserRole.ADMIN)
-  async completeOAuth(@Body() payload: CompleteOAuthDto): Promise<IntegrationDetail> {
-    return this.integrationService.completeOAuth({
+  async completeOAuth(
+    @Body() payload: CompleteOAuthDto,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<IntegrationDetail> {
+    return this.integrationService.completeOAuth(user.organizationId, {
       provider: payload.provider,
       state: payload.state,
       code: payload.code

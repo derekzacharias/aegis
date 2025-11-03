@@ -4,20 +4,28 @@ import {
   Logger,
   NotFoundException
 } from '@nestjs/common';
-import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import {
+  IntegrationConnection as PrismaIntegrationConnection,
+  IntegrationConnectionStatus as PrismaIntegrationStatus,
+  Prisma
+} from '@prisma/client';
+import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
+import { PrismaService } from '../prisma/prisma.service';
+import { IntegrationOAuthService, OAuthCompletionResult } from './integration-oauth.service';
+import {
+  IntegrationDomainService,
+  NormalizedIntegrationEvent
+} from './integration-domain.service';
+import {
+  INTEGRATION_PROVIDERS,
   IntegrationConnectionRecord,
   IntegrationDetail,
   IntegrationMappingPreferences,
   IntegrationOAuthInitiation,
   IntegrationProvider,
-  IntegrationSummary
+  IntegrationSummary,
+  IntegrationTaskSnapshot
 } from './integration.types';
-import { IntegrationOAuthService, OAuthCompletionResult } from './integration-oauth.service';
-import {
-    IntegrationDomainService,
-    NormalizedIntegrationEvent
-} from './integration-domain.service';
 
 interface UpsertIntegrationInput {
   provider: IntegrationProvider;
@@ -47,88 +55,92 @@ interface OAuthCompletionInput {
 @Injectable()
 export class IntegrationService {
   private readonly logger = new Logger(IntegrationService.name);
-  private readonly organizationId = 'demo-org';
-  private readonly integrations = new Map<IntegrationProvider, IntegrationConnectionRecord>();
 
   constructor(
+    private readonly prisma: PrismaService,
     private readonly oauthService: IntegrationOAuthService,
     private readonly domainService: IntegrationDomainService
-  ) {
-    this.seed();
+  ) {}
+
+  async list(organizationId: string): Promise<IntegrationSummary[]> {
+    await this.ensureAllProviders(organizationId);
+    const connections = await this.prisma.integrationConnection.findMany({
+      where: { organizationId },
+      orderBy: { provider: 'asc' }
+    });
+
+    return connections.map((connection) => this.toSummary(this.mapToRecord(connection)));
   }
 
-  async list(): Promise<IntegrationSummary[]> {
-    return Array.from(this.integrations.values()).map((record) => this.toSummary(record));
+  async detail(
+    organizationId: string,
+    provider: IntegrationProvider
+  ): Promise<IntegrationDetail> {
+    const connection = await this.ensureConnection(organizationId, provider);
+    return this.toDetail(this.mapToRecord(connection));
   }
 
-  async get(provider: IntegrationProvider): Promise<IntegrationConnectionRecord> {
-    const record = this.integrations.get(provider);
-    if (!record) {
-      throw new NotFoundException(`Integration ${provider} not configured`);
-    }
-    return record;
+  async upsert(
+    organizationId: string,
+    payload: UpsertIntegrationInput
+  ): Promise<IntegrationDetail> {
+    const existing = await this.ensureConnection(organizationId, payload.provider);
+    const scopes =
+      payload.scopes && payload.scopes.length
+        ? payload.scopes
+        : existing.oauthScopes.length
+        ? existing.oauthScopes
+        : this.getDefaultScopes(payload.provider);
+    const webhookSecret = existing.webhookSecret ?? this.generateWebhookSecret();
+    const webhookUrl = existing.webhookUrl ?? this.computeWebhookUrl(payload.provider);
+
+    const updated = await this.prisma.integrationConnection.update({
+      where: { id: existing.id },
+      data: {
+        baseUrl: payload.baseUrl,
+        clientId: payload.clientId,
+        clientSecret: payload.clientSecret,
+        oauthScopes: scopes,
+        webhookSecret,
+        webhookUrl,
+        status: 'CONNECTED',
+        statusMessage: null,
+        lastSyncedAt: new Date()
+      }
+    });
+
+    return this.toDetail(this.mapToRecord(updated));
   }
 
-  async detail(provider: IntegrationProvider): Promise<IntegrationDetail> {
-    const record = await this.get(provider);
-    return this.toDetail(record);
+  async updateMapping(
+    organizationId: string,
+    input: UpdateMappingInput
+  ): Promise<IntegrationDetail> {
+    const existing = await this.ensureConnection(organizationId, input.provider);
+    const mapping = this.mergeMapping(input.provider, input.mapping);
+
+    const updated = await this.prisma.integrationConnection.update({
+      where: { id: existing.id },
+      data: {
+        mappingPreferences: this.toMappingJson(mapping)
+      }
+    });
+
+    return this.toDetail(this.mapToRecord(updated));
   }
 
-  async upsert(payload: UpsertIntegrationInput): Promise<IntegrationDetail> {
-    const now = new Date().toISOString();
-    const existing = this.integrations.get(payload.provider);
-    const webhookSecret = existing?.webhook.secret ?? this.generateWebhookSecret();
+  async initiateOAuth(
+    organizationId: string,
+    input: OAuthInitiationInput
+  ): Promise<IntegrationOAuthInitiation> {
+    const connection = await this.ensureConnection(organizationId, input.provider);
+    const scopes =
+      input.scopes && input.scopes.length
+        ? input.scopes
+        : connection.oauthScopes.length
+        ? connection.oauthScopes
+        : this.getDefaultScopes(input.provider);
 
-    const record: IntegrationConnectionRecord = {
-      id: existing?.id ?? payload.provider.toLowerCase(),
-      provider: payload.provider,
-      organizationId: this.organizationId,
-      baseUrl: payload.baseUrl,
-      clientId: payload.clientId,
-      clientSecret: payload.clientSecret,
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-      status: 'connected',
-      statusMessage: null,
-      syncCursor: existing?.syncCursor ?? null,
-      lastSyncedAt: now,
-      webhook: {
-        secret: webhookSecret,
-        url: this.computeWebhookUrl(payload.provider),
-        lastReceivedAt: existing?.webhook.lastReceivedAt ?? null,
-        verified: existing?.webhook.verified ?? false
-      },
-      mapping: existing?.mapping ?? this.ensureDefaultMapping(payload.provider),
-      oauth: {
-        scopes: payload.scopes ?? existing?.oauth.scopes ?? [],
-        expiresAt: existing?.oauth.expiresAt ?? null,
-        accessToken: existing?.oauth.accessToken ?? null,
-        refreshToken: existing?.oauth.refreshToken ?? null
-      },
-      metrics: existing?.metrics ?? { issuesLinked: 0, projectsMapped: 0 }
-    };
-
-    this.integrations.set(payload.provider, record);
-    return this.toDetail(record);
-  }
-
-  async updateMapping(input: UpdateMappingInput): Promise<IntegrationDetail> {
-    const existing = await this.get(input.provider);
-    const updated: IntegrationConnectionRecord = {
-      ...existing,
-      mapping: {
-        ...input.mapping,
-        projectKey: input.mapping.projectKey ?? existing.mapping.projectKey
-      },
-      updatedAt: new Date().toISOString()
-    };
-    this.integrations.set(input.provider, updated);
-    return this.toDetail(updated);
-  }
-
-  async initiateOAuth(input: OAuthInitiationInput): Promise<IntegrationOAuthInitiation> {
-    const connection = await this.get(input.provider);
-    const scopes = input.scopes ?? connection.oauth.scopes ?? [];
     return this.oauthService.initiate(
       input.provider,
       connection.baseUrl,
@@ -138,29 +150,30 @@ export class IntegrationService {
     );
   }
 
-  async completeOAuth(input: OAuthCompletionInput): Promise<IntegrationDetail> {
-    const connection = await this.get(input.provider);
+  async completeOAuth(
+    organizationId: string,
+    input: OAuthCompletionInput
+  ): Promise<IntegrationDetail> {
+    const connection = await this.ensureConnection(organizationId, input.provider);
     const tokens: OAuthCompletionResult = this.oauthService.complete(
       input.provider,
       input.state,
       input.code
     );
 
-    const updated: IntegrationConnectionRecord = {
-      ...connection,
-      oauth: {
-        scopes: tokens.scopes,
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        expiresAt: tokens.expiresAt
-      },
-      status: 'connected',
-      statusMessage: null,
-      updatedAt: new Date().toISOString()
-    };
+    const updated = await this.prisma.integrationConnection.update({
+      where: { id: connection.id },
+      data: {
+        oauthAccessToken: tokens.accessToken,
+        oauthRefreshToken: tokens.refreshToken,
+        oauthExpiresAt: new Date(tokens.expiresAt),
+        oauthScopes: tokens.scopes,
+        status: 'CONNECTED',
+        statusMessage: null
+      }
+    });
 
-    this.integrations.set(input.provider, updated);
-    return this.toDetail(updated);
+    return this.toDetail(this.mapToRecord(updated));
   }
 
   async ingestWebhook(
@@ -168,8 +181,15 @@ export class IntegrationService {
     payload: Record<string, unknown>,
     signature: string | undefined
   ) {
-    const connection = await this.get(provider);
-    const secret = connection.webhook.secret;
+    const connection = await this.prisma.integrationConnection.findFirst({
+      where: { provider }
+    });
+
+    if (!connection) {
+      throw new NotFoundException(`Integration ${provider} not configured`);
+    }
+
+    const secret = connection.webhookSecret;
     if (!secret) {
       throw new BadRequestException('Webhook secret not configured');
     }
@@ -178,27 +198,130 @@ export class IntegrationService {
       throw new BadRequestException('Invalid webhook signature');
     }
 
+    const mapping = this.parseMapping(provider, connection.mappingPreferences);
     const normalized = this.normalizeWebhookPayload(provider, payload);
-    const snapshot = this.domainService.upsertFromWebhook(provider, normalized, connection.mapping);
-    const metrics = this.domainService.getMetrics(provider);
+    const snapshot = this.domainService.upsertFromWebhook(
+      provider,
+      normalized,
+      mapping,
+      connection.organizationId
+    );
 
-    const updated: IntegrationConnectionRecord = {
-      ...connection,
-      webhook: {
-        ...connection.webhook,
-        lastReceivedAt: snapshot.updatedAt,
-        verified: true
-      },
-      metrics,
-      updatedAt: snapshot.updatedAt
-    };
-
-    this.integrations.set(provider, updated);
+    await this.prisma.integrationConnection.update({
+      where: { id: connection.id },
+      data: {
+        lastWebhookAt: new Date(snapshot.updatedAt),
+        status: 'CONNECTED',
+        statusMessage: null
+      }
+    });
 
     this.logger.log(
       `Processed ${provider} webhook for ${normalized.externalId} -> task ${snapshot.taskId}`
     );
     return snapshot;
+  }
+
+  listTasks(
+    provider?: IntegrationProvider,
+    organizationId?: string
+  ): IntegrationTaskSnapshot[] {
+    return this.domainService.listTasks(provider, organizationId);
+  }
+
+  private async ensureAllProviders(organizationId: string) {
+    await Promise.all(
+      INTEGRATION_PROVIDERS.map((provider) => this.ensureConnection(organizationId, provider))
+    );
+  }
+
+  private async ensureConnection(
+    organizationId: string,
+    provider: IntegrationProvider
+  ): Promise<PrismaIntegrationConnection> {
+    let connection = await this.prisma.integrationConnection.findFirst({
+      where: { organizationId, provider }
+    });
+
+    if (!connection) {
+      connection = await this.prisma.integrationConnection.create({
+        data: this.buildDefaultConnectionData(organizationId, provider)
+      });
+      return connection;
+    }
+
+    const updateData: Prisma.IntegrationConnectionUpdateInput = {};
+    let shouldUpdate = false;
+
+    if (!connection.webhookSecret) {
+      updateData.webhookSecret = this.generateWebhookSecret();
+      shouldUpdate = true;
+    }
+
+    if (!connection.webhookUrl) {
+      updateData.webhookUrl = this.computeWebhookUrl(provider);
+      shouldUpdate = true;
+    }
+
+    if (!connection.oauthScopes || connection.oauthScopes.length === 0) {
+      updateData.oauthScopes = this.getDefaultScopes(provider);
+      shouldUpdate = true;
+    }
+
+    if (this.isJsonEmpty(connection.mappingPreferences)) {
+      updateData.mappingPreferences = this.toMappingJson(this.buildDefaultMapping(provider));
+      shouldUpdate = true;
+    }
+
+    if (shouldUpdate) {
+      connection = await this.prisma.integrationConnection.update({
+        where: { id: connection.id },
+        data: updateData
+      });
+    }
+
+    return connection;
+  }
+
+  private mapToRecord(connection: PrismaIntegrationConnection): IntegrationConnectionRecord {
+    const provider = connection.provider as IntegrationProvider;
+    const mapping = this.parseMapping(provider, connection.mappingPreferences);
+    const metrics = this.domainService.getMetrics(provider, connection.organizationId);
+
+    return {
+      id: connection.id,
+      provider,
+      organizationId: connection.organizationId,
+      baseUrl: connection.baseUrl,
+      clientId: connection.clientId,
+      clientSecret: connection.clientSecret,
+      createdAt: connection.createdAt.toISOString(),
+      updatedAt: connection.updatedAt.toISOString(),
+      status: this.fromPrismaStatus(connection.status),
+      statusMessage: connection.statusMessage,
+      syncCursor: connection.syncCursor,
+      lastSyncedAt: connection.lastSyncedAt
+        ? connection.lastSyncedAt.toISOString()
+        : null,
+      webhook: {
+        secret: connection.webhookSecret ?? null,
+        url: connection.webhookUrl ?? this.computeWebhookUrl(provider),
+        lastReceivedAt: connection.lastWebhookAt
+          ? connection.lastWebhookAt.toISOString()
+          : null,
+        verified: Boolean(connection.webhookSecret && connection.lastWebhookAt)
+      },
+      mapping,
+      oauth: {
+        scopes: connection.oauthScopes ?? [],
+        accessToken: connection.oauthAccessToken ?? null,
+        refreshToken: connection.oauthRefreshToken ?? null,
+        expiresAt: connection.oauthExpiresAt
+          ? connection.oauthExpiresAt.toISOString()
+          : null
+      },
+      metrics
+    };
   }
 
   private toSummary(record: IntegrationConnectionRecord): IntegrationSummary {
@@ -235,84 +358,31 @@ export class IntegrationService {
     };
   }
 
-  private seed() {
-    const now = new Date().toISOString();
-    const jiraMapping = this.ensureDefaultMapping('JIRA');
-    const servicenowMapping = this.ensureDefaultMapping('SERVICENOW');
-
-    this.integrations.set('JIRA', {
-      id: 'jira',
-      provider: 'JIRA',
-      organizationId: this.organizationId,
-      baseUrl: 'https://your-domain.atlassian.net',
+  private buildDefaultConnectionData(
+    organizationId: string,
+    provider: IntegrationProvider
+  ): Prisma.IntegrationConnectionCreateInput {
+    const mapping = this.buildDefaultMapping(provider);
+    return {
+      organizationId,
+      provider,
       clientId: 'demo-client-id',
       clientSecret: 'demo-client-secret',
-      createdAt: now,
-      updatedAt: now,
-      status: 'connected',
-      statusMessage: null,
-      syncCursor: null,
-      lastSyncedAt: now,
-      webhook: {
-        secret: this.generateWebhookSecret(),
-        url: this.computeWebhookUrl('JIRA'),
-        lastReceivedAt: null,
-        verified: false
-      },
-      mapping: jiraMapping,
-      oauth: {
-        scopes: ['read:jira-work', 'write:jira-work'],
-        accessToken: null,
-        refreshToken: null,
-        expiresAt: null
-      },
-      metrics: {
-        issuesLinked: 128,
-        projectsMapped: 4
-      }
-    });
-
-    this.integrations.set('SERVICENOW', {
-      id: 'servicenow',
-      provider: 'SERVICENOW',
-      organizationId: this.organizationId,
-      baseUrl: 'https://instance.service-now.com',
-      clientId: 'demo-client-id',
-      clientSecret: 'demo-client-secret',
-      createdAt: now,
-      updatedAt: now,
-      status: 'pending',
-      statusMessage: 'Awaiting OAuth approval from ServiceNow admin.',
-      syncCursor: null,
-      lastSyncedAt: null,
-      webhook: {
-        secret: this.generateWebhookSecret(),
-        url: this.computeWebhookUrl('SERVICENOW'),
-        lastReceivedAt: null,
-        verified: false
-      },
-      mapping: servicenowMapping,
-      oauth: {
-        scopes: ['ticket.read', 'ticket.write'],
-        accessToken: null,
-        refreshToken: null,
-        expiresAt: null
-      },
-      metrics: {
-        issuesLinked: 0,
-        projectsMapped: 1
-      }
-    });
+      baseUrl: this.getDefaultBaseUrl(provider),
+      oauthScopes: this.getDefaultScopes(provider),
+      webhookSecret: this.generateWebhookSecret(),
+      webhookUrl: this.computeWebhookUrl(provider),
+      mappingPreferences: this.toMappingJson(mapping),
+      status: provider === 'JIRA' ? 'CONNECTED' : 'PENDING',
+      statusMessage:
+        provider === 'SERVICENOW'
+          ? 'Awaiting OAuth approval from ServiceNow admin.'
+          : null,
+      lastSyncedAt: provider === 'JIRA' ? new Date() : null
+    };
   }
 
-  private ensureDefaultMapping(
-    provider: IntegrationProvider,
-    fallback?: IntegrationMappingPreferences
-  ): IntegrationMappingPreferences {
-    if (fallback) {
-      return fallback;
-    }
-
+  private buildDefaultMapping(provider: IntegrationProvider): IntegrationMappingPreferences {
     if (provider === 'JIRA') {
       return {
         projectKey: 'FEDRAMP',
@@ -354,6 +424,137 @@ export class IntegrationService {
       },
       assessmentTagField: 'u_assessment_reference'
     };
+  }
+
+  private mergeMapping(
+    provider: IntegrationProvider,
+    mapping?: Partial<IntegrationMappingPreferences> | null
+  ): IntegrationMappingPreferences {
+    const defaults = this.buildDefaultMapping(provider);
+    if (!mapping) {
+      return defaults;
+    }
+
+    return {
+      projectKey:
+        mapping.projectKey !== undefined ? mapping.projectKey : defaults.projectKey,
+      defaultIssueType: mapping.defaultIssueType ?? defaults.defaultIssueType,
+      assessmentTagField:
+        mapping.assessmentTagField !== undefined
+          ? mapping.assessmentTagField
+          : defaults.assessmentTagField,
+      statusMapping: this.mergeMappingRecords(mapping.statusMapping, defaults.statusMapping),
+      priorityMapping: this.mergeMappingRecords(
+        mapping.priorityMapping,
+        defaults.priorityMapping
+      )
+    };
+  }
+
+  private mergeMappingRecords(
+    source: Record<string, string> | undefined,
+    defaults: Record<string, string>
+  ): Record<string, string> {
+    const sanitized: Record<string, string> = {};
+    if (source) {
+      for (const [key, value] of Object.entries(source)) {
+        if (typeof value === 'string' && value.trim().length) {
+          sanitized[key] = value;
+        }
+      }
+    }
+
+    const merged = { ...defaults, ...sanitized };
+    if (!merged.default) {
+      merged.default = defaults.default;
+    }
+    return merged;
+  }
+
+  private parseMapping(
+    provider: IntegrationProvider,
+    raw: Prisma.JsonValue | null
+  ): IntegrationMappingPreferences {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return this.buildDefaultMapping(provider);
+    }
+
+    const source = raw as Record<string, unknown>;
+    const mapping: Partial<IntegrationMappingPreferences> = {
+      projectKey:
+        source.projectKey === null || typeof source.projectKey === 'string'
+          ? (source.projectKey as string | null)
+          : undefined,
+      defaultIssueType:
+        typeof source.defaultIssueType === 'string' ? source.defaultIssueType : undefined,
+      assessmentTagField:
+        source.assessmentTagField === null || typeof source.assessmentTagField === 'string'
+          ? (source.assessmentTagField as string | null)
+          : undefined,
+      statusMapping: this.castMappingRecord(source.statusMapping),
+      priorityMapping: this.castMappingRecord(source.priorityMapping)
+    };
+
+    return this.mergeMapping(provider, mapping);
+  }
+
+  private castMappingRecord(value: unknown): Record<string, string> | undefined {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return undefined;
+    }
+
+    const result: Record<string, string> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof entry === 'string') {
+        result[key] = entry;
+      }
+    }
+    return result;
+  }
+
+  private toMappingJson(mapping: IntegrationMappingPreferences): Prisma.JsonObject {
+    return {
+      projectKey: mapping.projectKey,
+      defaultIssueType: mapping.defaultIssueType,
+      assessmentTagField: mapping.assessmentTagField,
+      statusMapping: mapping.statusMapping,
+      priorityMapping: mapping.priorityMapping
+    } as Prisma.JsonObject;
+  }
+
+  private fromPrismaStatus(status: PrismaIntegrationStatus) {
+    switch (status) {
+      case 'CONNECTED':
+        return 'connected';
+      case 'ERROR':
+        return 'error';
+      default:
+        return 'pending';
+    }
+  }
+
+  private isJsonEmpty(value: Prisma.JsonValue | null | undefined) {
+    if (!value) {
+      return true;
+    }
+
+    if (typeof value !== 'object' || Array.isArray(value)) {
+      return true;
+    }
+
+    return Object.keys(value as Record<string, unknown>).length === 0;
+  }
+
+  private getDefaultScopes(provider: IntegrationProvider) {
+    return provider === 'JIRA'
+      ? ['read:jira-work', 'write:jira-work']
+      : ['ticket.read', 'ticket.write'];
+  }
+
+  private getDefaultBaseUrl(provider: IntegrationProvider) {
+    return provider === 'JIRA'
+      ? 'https://your-domain.atlassian.net'
+      : 'https://instance.service-now.com';
   }
 
   private computeWebhookUrl(provider: IntegrationProvider) {

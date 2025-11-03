@@ -259,15 +259,36 @@ const PoliciesPage = () => {
     }
 
     try {
+      const reviewCadence = newPolicyForm.reviewCadenceDays
+        ? Number(newPolicyForm.reviewCadenceDays)
+        : undefined;
+
+      if (reviewCadence !== undefined && Number.isNaN(reviewCadence)) {
+        toast({ title: 'Review cadence must be a number.', status: 'warning' });
+        return;
+      }
+
+      const retentionPeriod = newPolicyForm.retentionPeriodDays
+        ? Number(newPolicyForm.retentionPeriodDays)
+        : undefined;
+
+      if (retentionPeriod !== undefined && Number.isNaN(retentionPeriod)) {
+        toast({ title: 'Retention period must be a number.', status: 'warning' });
+        return;
+      }
+
       const payload = {
         title: newPolicyForm.title.trim(),
         description: newPolicyForm.description.trim() || undefined,
         category: newPolicyForm.category.trim() || undefined,
         tags: normalizeTags(newPolicyForm.tags),
-        reviewCadenceDays: newPolicyForm.reviewCadenceDays
-          ? Number(newPolicyForm.reviewCadenceDays)
-          : undefined,
-        ownerId: newPolicyForm.ownerId || undefined
+        reviewCadenceDays: reviewCadence,
+        ownerId: newPolicyForm.ownerId || undefined,
+        retentionPeriodDays: retentionPeriod,
+        retentionReason: newPolicyForm.retentionReason.trim() || undefined,
+        retentionExpiresAt: newPolicyForm.retentionExpiresAt
+          ? toIsoDate(newPolicyForm.retentionExpiresAt)
+          : undefined
       };
 
       const created = await createPolicy.mutateAsync(payload);
@@ -284,6 +305,18 @@ const PoliciesPage = () => {
     }
   };
 
+  const closeUploadModal = () => {
+    onCloseUpload();
+    setNewVersionForm({
+      label: '',
+      notes: '',
+      effectiveDate: '',
+      supersedesVersionId: '',
+      file: null,
+      frameworkMappings: []
+    });
+  };
+
   const handleUploadVersion = async () => {
     if (!selectedPolicyId || !newVersionForm.file) {
       toast({ title: 'Upload requires a document.', status: 'warning' });
@@ -291,6 +324,15 @@ const PoliciesPage = () => {
     }
 
     try {
+      const frameworksPayload =
+        newVersionForm.frameworkMappings.length > 0
+          ? newVersionForm.frameworkMappings.map((mapping) => ({
+              frameworkId: mapping.frameworkId,
+              controlFamilies: splitList(mapping.controlFamilies),
+              controlIds: splitList(mapping.controlIds)
+            }))
+          : undefined;
+
       await uploadVersion.mutateAsync({
         policyId: selectedPolicyId,
         file: newVersionForm.file,
@@ -298,18 +340,12 @@ const PoliciesPage = () => {
           label: newVersionForm.label.trim() || undefined,
           notes: newVersionForm.notes.trim() || undefined,
           effectiveAt: toIsoDate(newVersionForm.effectiveDate),
-          supersedesVersionId: newVersionForm.supersedesVersionId || undefined
+          supersedesVersionId: newVersionForm.supersedesVersionId || undefined,
+          frameworks: frameworksPayload
         }
       });
       toast({ title: 'Version uploaded', status: 'success' });
-      setNewVersionForm({
-        label: '',
-        notes: '',
-        effectiveDate: '',
-        supersedesVersionId: '',
-        file: null
-      });
-      onCloseUpload();
+      closeUploadModal();
     } catch (error) {
       toast({
         title: 'Unable to upload version',
@@ -386,6 +422,88 @@ const PoliciesPage = () => {
         status: 'error'
       });
     }
+  };
+
+  const handleOpenEditPolicy = () => {
+    if (!policyDetail) {
+      return;
+    }
+
+    setEditPolicyForm({
+      title: policyDetail.title,
+      description: policyDetail.description ?? '',
+      category: policyDetail.category ?? '',
+      tags: policyDetail.tags.join(', '),
+      reviewCadenceDays: policyDetail.reviewCadenceDays?.toString() ?? '',
+      ownerId: policyDetail.owner.id,
+      retentionPeriodDays: policyDetail.retention.periodDays?.toString() ?? '',
+      retentionReason: policyDetail.retention.reason ?? '',
+      retentionExpiresAt: policyDetail.retention.expiresAt
+        ? dayjs(policyDetail.retention.expiresAt).format('YYYY-MM-DD')
+        : ''
+    });
+    onOpenEdit();
+  };
+
+  const handleUpdatePolicy = async () => {
+    if (!selectedPolicyId || !editPolicyForm) {
+      return;
+    }
+
+    if (!editPolicyForm.title.trim()) {
+      toast({ title: 'Title is required.', status: 'warning' });
+      return;
+    }
+
+    const reviewCadence = editPolicyForm.reviewCadenceDays
+      ? Number(editPolicyForm.reviewCadenceDays)
+      : undefined;
+
+    if (reviewCadence !== undefined && Number.isNaN(reviewCadence)) {
+      toast({ title: 'Review cadence must be a number.', status: 'warning' });
+      return;
+    }
+
+    const retentionPeriod = editPolicyForm.retentionPeriodDays
+      ? Number(editPolicyForm.retentionPeriodDays)
+      : undefined;
+
+    if (retentionPeriod !== undefined && Number.isNaN(retentionPeriod)) {
+      toast({ title: 'Retention period must be a number.', status: 'warning' });
+      return;
+    }
+
+    try {
+      await updatePolicy.mutateAsync({
+        id: selectedPolicyId,
+        payload: {
+          title: editPolicyForm.title.trim(),
+          description: editPolicyForm.description.trim() || undefined,
+          category: editPolicyForm.category.trim() || undefined,
+          tags: normalizeTags(editPolicyForm.tags),
+          reviewCadenceDays: reviewCadence,
+          ownerId: editPolicyForm.ownerId || undefined,
+          retentionPeriodDays: retentionPeriod,
+          retentionReason: editPolicyForm.retentionReason.trim() || undefined,
+          retentionExpiresAt: editPolicyForm.retentionExpiresAt
+            ? toIsoDate(editPolicyForm.retentionExpiresAt)
+            : undefined
+        }
+      });
+      toast({ title: 'Policy updated', status: 'success' });
+      closeEditModal();
+    } catch (error) {
+      toast({
+        title: 'Unable to update policy',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        status: 'error'
+      });
+    }
+  };
+
+  const closeEditModal = () => {
+    onCloseEdit();
+    setEditPolicyForm(null);
   };
 
   const toggleCompare = (versionId: string) => {
@@ -800,6 +918,39 @@ const PoliciesPage = () => {
                 />
               </FormControl>
               <FormControl>
+                <FormLabel>Retention period (days)</FormLabel>
+                <Input
+                  type="number"
+                  min={30}
+                  placeholder="Optional"
+                  value={newPolicyForm.retentionPeriodDays}
+                  onChange={(event) =>
+                    setNewPolicyForm((prev) => ({ ...prev, retentionPeriodDays: event.target.value }))
+                  }
+                />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Retention reason</FormLabel>
+                <Textarea
+                  rows={2}
+                  placeholder="Why is this retention period enforced?"
+                  value={newPolicyForm.retentionReason}
+                  onChange={(event) =>
+                    setNewPolicyForm((prev) => ({ ...prev, retentionReason: event.target.value }))
+                  }
+                />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Retention expiration</FormLabel>
+                <Input
+                  type="date"
+                  value={newPolicyForm.retentionExpiresAt}
+                  onChange={(event) =>
+                    setNewPolicyForm((prev) => ({ ...prev, retentionExpiresAt: event.target.value }))
+                  }
+                />
+              </FormControl>
+              <FormControl>
                 <FormLabel>Owner</FormLabel>
                 <Select
                   value={newPolicyForm.ownerId}
@@ -826,7 +977,7 @@ const PoliciesPage = () => {
       </Modal>
 
       {/* Upload version modal */}
-      <Modal isOpen={isUploadOpen} onClose={onCloseUpload} size="lg">
+      <Modal isOpen={isUploadOpen} onClose={closeUploadModal} size="lg">
         <ModalOverlay />
         <ModalContent>
           <ModalHeader>Upload new version</ModalHeader>
@@ -881,10 +1032,78 @@ const PoliciesPage = () => {
                   onChange={(event) => setNewVersionForm((prev) => ({ ...prev, notes: event.target.value }))}
                 />
               </FormControl>
+              <FormControl>
+                <FormLabel>Framework mappings</FormLabel>
+                {frameworks.length === 0 ? (
+                  <Text fontSize="sm" color="gray.500">
+                    No frameworks available. Map policies after you create frameworks for this organization.
+                  </Text>
+                ) : (
+                  <Stack spacing={3} maxH="260px" overflowY="auto">
+                    {frameworks.map((framework) => {
+                      const frameworkName =
+                        (framework as { name?: string; title?: string; slug?: string }).name ??
+                        (framework as { name?: string; title?: string; slug?: string }).title ??
+                        (framework as { name?: string; title?: string; slug?: string }).slug ??
+                        'Framework';
+                      const mapping = newVersionForm.frameworkMappings.find(
+                        (item) => item.frameworkId === framework.id
+                      );
+                      const isSelected = Boolean(mapping);
+
+                      return (
+                        <Box key={framework.id} borderWidth="1px" borderRadius="md" p={3} borderColor={borderColor}>
+                          <Checkbox
+                            isChecked={isSelected}
+                            onChange={(event) =>
+                              toggleFrameworkSelection(framework.id, event.target.checked)
+                            }
+                            colorScheme="brand"
+                          >
+                            {frameworkName}
+                          </Checkbox>
+                          {isSelected && mapping && (
+                            <Stack spacing={2} mt={3} pl={6}>
+                              <FormControl>
+                                <FormLabel fontSize="xs">Control families</FormLabel>
+                                <Input
+                                  placeholder="Comma-separated families (e.g. AC, AT)"
+                                  value={mapping.controlFamilies}
+                                  onChange={(event) =>
+                                    updateFrameworkMappingField(
+                                      framework.id,
+                                      'controlFamilies',
+                                      event.target.value
+                                    )
+                                  }
+                                />
+                              </FormControl>
+                              <FormControl>
+                                <FormLabel fontSize="xs">Control IDs</FormLabel>
+                                <Input
+                                  placeholder="Comma-separated control IDs"
+                                  value={mapping.controlIds}
+                                  onChange={(event) =>
+                                    updateFrameworkMappingField(
+                                      framework.id,
+                                      'controlIds',
+                                      event.target.value
+                                    )
+                                  }
+                                />
+                              </FormControl>
+                            </Stack>
+                          )}
+                        </Box>
+                      );
+                    })}
+                  </Stack>
+                )}
+              </FormControl>
             </Stack>
           </ModalBody>
           <ModalFooter>
-            <Button variant="ghost" mr={3} onClick={onCloseUpload}>
+            <Button variant="ghost" mr={3} onClick={closeUploadModal}>
               Cancel
             </Button>
             <Button
@@ -893,6 +1112,153 @@ const PoliciesPage = () => {
               isLoading={uploadVersion.isPending}
             >
               Upload
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Edit policy modal */}
+      <Modal isOpen={isEditOpen} onClose={closeEditModal} size="lg">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Edit policy</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            {editPolicyForm ? (
+              <Stack spacing={4}>
+                <FormControl isRequired>
+                  <FormLabel>Title</FormLabel>
+                  <Input
+                    value={editPolicyForm.title}
+                    onChange={(event) =>
+                      setEditPolicyForm((prev) =>
+                        prev ? { ...prev, title: event.target.value } : prev
+                      )
+                    }
+                  />
+                </FormControl>
+                <FormControl>
+                  <FormLabel>Description</FormLabel>
+                  <Textarea
+                    rows={3}
+                    value={editPolicyForm.description}
+                    onChange={(event) =>
+                      setEditPolicyForm((prev) =>
+                        prev ? { ...prev, description: event.target.value } : prev
+                      )
+                    }
+                  />
+                </FormControl>
+                <FormControl>
+                  <FormLabel>Category</FormLabel>
+                  <Input
+                    value={editPolicyForm.category}
+                    onChange={(event) =>
+                      setEditPolicyForm((prev) =>
+                        prev ? { ...prev, category: event.target.value } : prev
+                      )
+                    }
+                  />
+                </FormControl>
+                <FormControl>
+                  <FormLabel>Tags</FormLabel>
+                  <Input
+                    placeholder="Comma separated"
+                    value={editPolicyForm.tags}
+                    onChange={(event) =>
+                      setEditPolicyForm((prev) =>
+                        prev ? { ...prev, tags: event.target.value } : prev
+                      )
+                    }
+                  />
+                </FormControl>
+                <FormControl>
+                  <FormLabel>Review cadence (days)</FormLabel>
+                  <Input
+                    type="number"
+                    min={30}
+                    value={editPolicyForm.reviewCadenceDays}
+                    onChange={(event) =>
+                      setEditPolicyForm((prev) =>
+                        prev ? { ...prev, reviewCadenceDays: event.target.value } : prev
+                      )
+                    }
+                  />
+                </FormControl>
+                <FormControl>
+                  <FormLabel>Retention period (days)</FormLabel>
+                  <Input
+                    type="number"
+                    min={30}
+                    placeholder="Optional"
+                    value={editPolicyForm.retentionPeriodDays}
+                    onChange={(event) =>
+                      setEditPolicyForm((prev) =>
+                        prev ? { ...prev, retentionPeriodDays: event.target.value } : prev
+                      )
+                    }
+                  />
+                </FormControl>
+                <FormControl>
+                  <FormLabel>Retention reason</FormLabel>
+                  <Textarea
+                    rows={2}
+                    placeholder="Why is this retention period enforced?"
+                    value={editPolicyForm.retentionReason}
+                    onChange={(event) =>
+                      setEditPolicyForm((prev) =>
+                        prev ? { ...prev, retentionReason: event.target.value } : prev
+                      )
+                    }
+                  />
+                </FormControl>
+                <FormControl>
+                  <FormLabel>Retention expiration</FormLabel>
+                  <Input
+                    type="date"
+                    value={editPolicyForm.retentionExpiresAt}
+                    onChange={(event) =>
+                      setEditPolicyForm((prev) =>
+                        prev ? { ...prev, retentionExpiresAt: event.target.value } : prev
+                      )
+                    }
+                  />
+                </FormControl>
+                <FormControl>
+                  <FormLabel>Owner</FormLabel>
+                  <Select
+                    value={editPolicyForm.ownerId}
+                    onChange={(event) =>
+                      setEditPolicyForm((prev) =>
+                        prev ? { ...prev, ownerId: event.target.value } : prev
+                      )
+                    }
+                  >
+                    {participants?.authors.map((user) => (
+                      <option key={user.id} value={user.id}>
+                        {user.name} ({user.role})
+                      </option>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Stack>
+            ) : (
+              <Flex justify="center" py={6}>
+                <Spinner />
+              </Flex>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="ghost" mr={3} onClick={closeEditModal}>
+              Cancel
+            </Button>
+            <Button
+              colorScheme="brand"
+              onClick={handleUpdatePolicy}
+              isLoading={updatePolicy.isPending}
+              isDisabled={!editPolicyForm}
+            >
+              Save changes
             </Button>
           </ModalFooter>
         </ModalContent>
