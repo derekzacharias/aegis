@@ -16,6 +16,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { SchedulerModule } from '../scheduler/scheduler.module';
 import { PolicyModule } from '../policy/policy.module';
 import { UserModule } from '../user/user.module';
+import { TenantModule } from '../tenant/tenant.module';
 
 @Module({
   imports: [
@@ -33,7 +34,8 @@ import { UserModule } from '../user/user.module';
     IntegrationModule,
     ReportingModule,
     PolicyModule,
-    SchedulerModule
+    SchedulerModule,
+    TenantModule
   ],
   controllers: [HealthController],
   providers: [

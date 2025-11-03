@@ -22,11 +22,14 @@ const mapBaselines = (baselines?: readonly string[]): PrismaBaselineLevel[] =>
 async function main() {
   const organization = await prisma.organization.upsert({
     where: { slug: 'aegis-compliance' },
-    update: {},
+    update: {
+      primaryContactEmail: 'support@aegis.local'
+    },
     create: {
       slug: 'aegis-compliance',
       name: 'Aegis Compliance Control Center',
-      impactLevel: 'MODERATE'
+      impactLevel: 'MODERATE',
+      primaryContactEmail: 'support@aegis.local'
     }
   });
 
