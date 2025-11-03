@@ -128,6 +128,51 @@ describe('CrosswalkService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('carries metadata for seeded ISO crosswalk mappings', async () => {
+    frameworkFindUnique.mockResolvedValue({ id: 'iso-27001-2022' });
+
+    const isoSource = buildControl({
+      id: 'iso-27001-2022-a-5-1',
+      frameworkId: 'iso-27001-2022',
+      title: 'Policies for information security',
+      description: 'Define, approve, and review information security policies.',
+      metadata: { clause: 'A.5.1', domain: 'Organizational Controls' }
+    });
+    const isoTarget = buildControl({
+      id: 'iso-27002-2022-a-5-1',
+      frameworkId: 'iso-27002-2022',
+      title: 'Policies for information security guidance',
+      description: 'Implementation guidance for Annex A A.5.1.',
+      metadata: { clause: 'A.5.1', domain: 'Organizational Controls' }
+    });
+
+    controlFindMany
+      .mockResolvedValueOnce([isoSource])
+      .mockResolvedValueOnce([isoTarget]);
+
+    controlMappingFindMany.mockResolvedValue([
+      {
+        id: 'iso-crosswalk-a-5-1',
+        sourceControlId: isoSource.id,
+        targetControlId: isoTarget.id,
+        confidence: 0.98,
+        tags: ['iso27001', 'iso27002'],
+        origin: ControlMappingOrigin.SEED,
+        rationale: 'ISO 27002 guidance aligns with ISO 27001 Annex A A.5.1.',
+        sourceControl: isoSource,
+        targetControl: isoTarget,
+        evidenceHints: []
+      }
+    ]);
+
+    const result = await service.generateCrosswalk('iso-27001-2022', {});
+
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0].source.metadata?.['clause']).toEqual('A.5.1');
+    expect(result.matches[0].target.metadata?.['clause']).toEqual('A.5.1');
+    expect(result.matches[0].source.metadata?.['domain']).toEqual('Organizational Controls');
+  });
+
   it('creates manual mappings and normalises tags', async () => {
     const source = buildControl({ id: 'ac-1', frameworkId: 'nist-800-53-rev5' });
     const target = buildControl({ id: 'cis-1-1', frameworkId: 'cis-v8' });

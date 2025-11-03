@@ -1,4 +1,8 @@
 import {
+  BaselineLevel as PrismaBaselineLevel,
+  EvidenceIngestionStatus,
+  EvidenceStatus,
+  EvidenceStorageProvider,
   PolicyApprovalStatus,
   PolicyVersionStatus,
   Prisma,
@@ -11,6 +15,9 @@ import { controls } from '../src/framework/seed/controls.seed';
 import { controlMappings } from '../src/framework/seed/control-mappings.seed';
 
 const prisma = new PrismaClient();
+
+const mapBaselines = (baselines?: readonly string[]): PrismaBaselineLevel[] =>
+  (baselines ?? []).map((level) => level.toUpperCase() as PrismaBaselineLevel);
 
 async function main() {
   const organization = await prisma.organization.upsert({
@@ -52,72 +59,13 @@ async function main() {
     });
   }
 
-  const assessmentControlSeeds = [
-    {
-      id: 'assessment-control-ra-5',
-      assessmentId: 'assessment-fedramp-moderate',
-      controlId: 'ra-5',
-      status: 'SATISFIED' as const,
-      dueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 45),
-      evidenceIds: ['evidence-ra5-monthly-scan']
-    },
-    {
-      id: 'assessment-control-ia-2',
-      assessmentId: 'assessment-fedramp-moderate',
-      controlId: 'ia-2',
-      status: 'PARTIAL' as const,
-      dueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 15),
-      evidenceIds: ['evidence-privileged-mfa-policy']
-    },
-    {
-      id: 'assessment-control-cis-4-1',
-      assessmentId: 'assessment-cis-operational',
-      controlId: 'cis-4-1',
-      status: 'SATISFIED' as const,
-      evidenceIds: ['evidence-ra5-monthly-scan']
-    },
-    {
-      id: 'assessment-control-pci-8-2-6',
-      assessmentId: 'assessment-pci-gap',
-      controlId: 'pci-8-2-6',
-      status: 'UNSATISFIED' as const,
-      dueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 60),
-      evidenceIds: ['evidence-privileged-mfa-policy']
-    }
-  ];
-
-  for (const seed of assessmentControlSeeds) {
-    const record = await prisma.assessmentControl.upsert({
-      where: { id: seed.id },
-      create: {
-        id: seed.id,
-        assessmentId: seed.assessmentId,
-        controlId: seed.controlId,
-        status: seed.status,
-        dueDate: seed.dueDate ?? null
-      },
-      update: {
-        status: seed.status,
-        dueDate: seed.dueDate ?? null
-      }
-    });
-
-    await prisma.assessmentEvidence.deleteMany({
-      where: { assessmentControlId: record.id }
-    });
-
-    for (const evidenceId of seed.evidenceIds ?? []) {
-      await prisma.assessmentEvidence.create({
-        data: {
-          assessmentControlId: record.id,
-          evidenceId
-        }
-      });
-    }
-  }
-
   for (const control of controls) {
     const kind = control.kind === 'enhancement' ? 'ENHANCEMENT' : 'BASE';
+    const metadataValue =
+      control.metadata === undefined
+        ? Prisma.JsonNull
+        : (control.metadata as Prisma.InputJsonValue | null) ?? Prisma.JsonNull;
+
     await prisma.control.upsert({
       where: { id: control.id },
       create: {
@@ -129,12 +77,12 @@ async function main() {
         priority: control.priority,
         kind,
         parentId: control.parentId ?? null,
-        baselines: control.baselines ?? [],
+        baselines: mapBaselines(control.baselines),
         keywords: control.keywords ?? [],
         references: control.references ?? [],
         relatedControls: control.relatedControls ?? [],
-        tags: [],
-        metadata: Prisma.JsonNull,
+        tags: control.tags ?? [],
+        metadata: metadataValue,
         isCustom: false
       },
       update: {
@@ -145,12 +93,12 @@ async function main() {
         title: control.title,
         description: control.description,
         priority: control.priority,
-        baselines: control.baselines ?? [],
+        baselines: mapBaselines(control.baselines),
         keywords: control.keywords ?? [],
         references: control.references ?? [],
         relatedControls: control.relatedControls ?? [],
-        tags: [],
-        metadata: Prisma.JsonNull,
+        tags: control.tags ?? [],
+        metadata: metadataValue,
         isCustom: false
       }
     });
@@ -266,6 +214,14 @@ async function main() {
     });
   }
 
+  const mappingEvidenceHints: Array<{
+    mappingId: string;
+    evidenceId: string;
+    summary: string;
+    rationale?: string;
+    score?: number;
+  }> = [];
+
   for (const mapping of controlMappings) {
     const existing = await prisma.controlMapping.findFirst({
       where: {
@@ -300,14 +256,15 @@ async function main() {
     });
 
     for (const hint of mapping.evidenceHints ?? []) {
-      await prisma.controlMappingEvidenceHint.create({
-        data: {
-          mappingId: record.id,
-          evidenceId: hint.evidenceId,
-          summary: hint.summary,
-          rationale: hint.rationale,
-          score: hint.score ?? 0.5
-        }
+      if (!hint.evidenceId) {
+        continue;
+      }
+      mappingEvidenceHints.push({
+        mappingId: record.id,
+        evidenceId: hint.evidenceId,
+        summary: hint.summary ?? 'See referenced evidence artifact',
+        rationale: hint.rationale ?? undefined,
+        score: hint.score ?? 0.5
       });
     }
   }
@@ -326,8 +283,8 @@ async function main() {
     displayControlIds: string[];
     frameworkIds: string[];
     tags: string[];
-    status: Prisma.EvidenceStatus;
-    ingestionStatus: Prisma.EvidenceIngestionStatus;
+    status: EvidenceStatus;
+    ingestionStatus: EvidenceIngestionStatus;
     reviewDue?: Date | null;
     retentionPeriodDays?: number | null;
     retentionReason?: string | null;
@@ -350,8 +307,8 @@ async function main() {
       displayControlIds: ['ra-5', 'cis-4-1'],
       frameworkIds: ['nist-800-53-rev5', 'cis-v8'],
       tags: ['vulnerability', 'scan', 'continuous-monitoring'],
-      status: 'APPROVED',
-      ingestionStatus: 'COMPLETED',
+      status: EvidenceStatus.APPROVED,
+      ingestionStatus: EvidenceIngestionStatus.COMPLETED,
       reviewDue: new Date(Date.now() + 1000 * 60 * 60 * 24 * 120),
       retentionPeriodDays: 730,
       retentionReason: 'FedRAMP documentation retention (2 years)',
@@ -374,8 +331,8 @@ async function main() {
       displayControlIds: ['ia-2', 'pci-8-2-6'],
       frameworkIds: ['nist-800-53-rev5', 'pci-dss-4-0'],
       tags: ['mfa', 'identity', 'access-control'],
-      status: 'PENDING',
-      ingestionStatus: 'PROCESSING',
+      status: EvidenceStatus.PENDING,
+      ingestionStatus: EvidenceIngestionStatus.PROCESSING,
       reviewDue: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30),
       retentionPeriodDays: 365,
       retentionReason: 'Quarterly access control attestation',
@@ -404,7 +361,7 @@ async function main() {
         name: seed.name,
         storageUri: seed.storageUri,
         storageKey: seed.storageKey,
-        storageProvider: 'S3',
+        storageProvider: EvidenceStorageProvider.S3,
         originalFilename: seed.originalFilename,
         contentType: seed.contentType,
         fileSize: seed.fileSize,
@@ -421,7 +378,7 @@ async function main() {
         status: seed.status,
         ingestionStatus: seed.ingestionStatus,
         nextAction: seed.nextAction ?? null,
-        lastReviewed: seed.status === 'APPROVED' ? new Date() : null,
+        lastReviewed: seed.status === EvidenceStatus.APPROVED ? new Date() : null,
         displayFrameworkIds: seed.displayFrameworkIds,
         displayControlIds: seed.displayControlIds,
         frameworks: {
@@ -452,7 +409,7 @@ async function main() {
         status: seed.status,
         ingestionStatus: seed.ingestionStatus,
         nextAction: seed.nextAction ?? null,
-        lastReviewed: seed.status === 'APPROVED' ? new Date() : null,
+        lastReviewed: seed.status === EvidenceStatus.APPROVED ? new Date() : null,
         displayFrameworkIds: seed.displayFrameworkIds,
         displayControlIds: seed.displayControlIds,
         frameworks: {
@@ -469,12 +426,98 @@ async function main() {
     await prisma.evidenceStatusHistory.create({
       data: {
         evidenceId: seed.id,
-        fromStatus: seed.status === 'PENDING' ? null : 'PENDING',
+        fromStatus:
+          seed.status === EvidenceStatus.PENDING ? null : EvidenceStatus.PENDING,
         toStatus: seed.status,
         changedById: adminUser.id,
         note: seed.notes ?? 'Seeded evidence record for demo purposes'
       }
     });
+  }
+
+  for (const hint of mappingEvidenceHints) {
+    const evidenceExists = await prisma.evidenceItem.findUnique({
+      where: { id: hint.evidenceId },
+      select: { id: true }
+    });
+
+    if (!evidenceExists) {
+      continue;
+    }
+
+    await prisma.controlMappingEvidenceHint.create({
+      data: {
+        mappingId: hint.mappingId,
+        evidenceId: hint.evidenceId,
+        summary: hint.summary,
+        rationale: hint.rationale ?? null,
+        score: hint.score ?? 0.5
+      }
+    });
+  }
+
+  const assessmentControlSeeds = [
+    {
+      id: 'assessment-control-ra-5',
+      assessmentId: 'assessment-fedramp-moderate',
+      controlId: 'ra-5',
+      status: 'SATISFIED' as const,
+      dueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 45),
+      evidenceIds: ['evidence-ra5-monthly-scan']
+    },
+    {
+      id: 'assessment-control-ia-2',
+      assessmentId: 'assessment-fedramp-moderate',
+      controlId: 'ia-2',
+      status: 'PARTIAL' as const,
+      dueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 15),
+      evidenceIds: ['evidence-privileged-mfa-policy']
+    },
+    {
+      id: 'assessment-control-cis-4-1',
+      assessmentId: 'assessment-cis-operational',
+      controlId: 'cis-4-1',
+      status: 'SATISFIED' as const,
+      evidenceIds: ['evidence-ra5-monthly-scan']
+    },
+    {
+      id: 'assessment-control-pci-8-2-6',
+      assessmentId: 'assessment-pci-gap',
+      controlId: 'pci-8-2-6',
+      status: 'UNSATISFIED' as const,
+      dueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 60),
+      evidenceIds: ['evidence-privileged-mfa-policy']
+    }
+  ];
+
+  for (const seed of assessmentControlSeeds) {
+    const record = await prisma.assessmentControl.upsert({
+      where: { id: seed.id },
+      create: {
+        id: seed.id,
+        assessmentId: seed.assessmentId,
+        controlId: seed.controlId,
+        status: seed.status,
+        dueDate: seed.dueDate ?? null
+      },
+      update: {
+        status: seed.status,
+        dueDate: seed.dueDate ?? null
+      }
+    });
+
+    await prisma.assessmentEvidence.deleteMany({
+      where: { assessmentControlId: record.id }
+    });
+
+    for (const evidenceId of seed.evidenceIds ?? []) {
+      await prisma.assessmentEvidence.create({
+        data: {
+          assessmentControlId: record.id,
+          evidenceId
+        }
+      });
+    }
   }
 
   const [policyAuthor, policyCoAuthor, policyApprover] = await Promise.all([
@@ -747,7 +790,7 @@ async function main() {
     data: { currentVersionId: null }
   });
 
-  const evidenceSeeds: Array<{
+  const localEvidenceSeeds: Array<{
     id: string;
     name: string;
     storageUri: string;
@@ -756,8 +799,8 @@ async function main() {
     contentType: string;
     fileSize: number;
     checksum?: string;
-    status: Prisma.EvidenceStatus;
-    ingestionStatus: Prisma.EvidenceIngestionStatus;
+    status: EvidenceStatus;
+    ingestionStatus: EvidenceIngestionStatus;
     reviewDue?: Date | null;
     retentionPeriodDays?: number | null;
     retentionReason?: string | null;
@@ -773,8 +816,8 @@ async function main() {
       contentType: 'application/pdf',
       fileSize: 18_400 * 1024,
       checksum: 'sha256:demo-ssp-hash',
-      status: 'APPROVED',
-      ingestionStatus: 'COMPLETED',
+      status: EvidenceStatus.APPROVED,
+      ingestionStatus: EvidenceIngestionStatus.COMPLETED,
       reviewDue: new Date(Date.now() + 1000 * 60 * 60 * 24 * 180),
       retentionPeriodDays: 730,
       retentionReason: 'FedRAMP documentation retention (2 years)',
@@ -790,8 +833,8 @@ async function main() {
       contentType: 'image/png',
       fileSize: 820 * 1024,
       checksum: 'sha256:demo-mfa-hash',
-      status: 'PENDING',
-      ingestionStatus: 'PROCESSING',
+      status: EvidenceStatus.PENDING,
+      ingestionStatus: EvidenceIngestionStatus.PROCESSING,
       reviewDue: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7),
       retentionPeriodDays: 365,
       retentionReason: 'Quarterly access control attestation',
@@ -800,7 +843,7 @@ async function main() {
     }
   ];
 
-  for (const seed of evidenceSeeds) {
+  for (const seed of localEvidenceSeeds) {
     await prisma.evidenceStatusHistory.deleteMany({
       where: { evidenceId: seed.id }
     });
@@ -811,7 +854,7 @@ async function main() {
         name: seed.name,
         storageUri: seed.storageUri,
         storageKey: seed.storageKey,
-        storageProvider: 'LOCAL',
+        storageProvider: EvidenceStorageProvider.LOCAL,
         originalFilename: seed.originalFilename,
         contentType: seed.contentType,
         fileSize: seed.fileSize,
@@ -842,7 +885,7 @@ async function main() {
         name: seed.name,
         storageUri: seed.storageUri,
         storageKey: seed.storageKey,
-        storageProvider: 'LOCAL',
+        storageProvider: EvidenceStorageProvider.LOCAL,
         originalFilename: seed.originalFilename,
         contentType: seed.contentType,
         fileSize: seed.fileSize,
@@ -873,7 +916,8 @@ async function main() {
     await prisma.evidenceStatusHistory.create({
       data: {
         evidenceId: seed.id,
-        fromStatus: seed.status === 'PENDING' ? null : 'PENDING',
+        fromStatus:
+          seed.status === EvidenceStatus.PENDING ? null : EvidenceStatus.PENDING,
         toStatus: seed.status,
         changedById: adminUser.id,
         note: 'Seeded evidence record for demo purposes'

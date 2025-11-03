@@ -9,6 +9,7 @@ export type ControlReference = {
   frameworkId: string;
   title: string;
   family: string;
+  metadata?: Record<string, unknown>;
 };
 
 export type EvidenceReuseHint = {

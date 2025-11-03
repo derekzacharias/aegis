@@ -88,6 +88,22 @@ const evidenceStatusColors: Record<EvidenceStatus, string> = {
   QUARANTINED: 'red'
 };
 
+const resolveClause = (metadata?: Record<string, unknown> | null): string | undefined => {
+  if (!metadata || typeof metadata !== 'object') {
+    return undefined;
+  }
+  const clause = metadata['clause'];
+  return typeof clause === 'string' && clause.trim().length > 0 ? clause : undefined;
+};
+
+const resolveDomain = (metadata?: Record<string, unknown> | null): string | undefined => {
+  if (!metadata || typeof metadata !== 'object') {
+    return undefined;
+  }
+  const domain = metadata['domain'];
+  return typeof domain === 'string' && domain.trim().length > 0 ? domain : undefined;
+};
+
 const FrameworkControlCatalogPage = () => {
   const { frameworkId } = useParams<{ frameworkId: string }>();
   const navigate = useNavigate();
@@ -301,7 +317,7 @@ const FrameworkControlCatalogPage = () => {
               <Icon as={FiSearch} color="gray.400" />
             </InputLeftElement>
             <Input
-              placeholder="e.g. AC-2, account management, remote access"
+              placeholder="e.g. AC-2, A.5.1, account management"
               value={searchInput}
               onChange={handleSearchChange}
               aria-label="Search controls"
@@ -435,18 +451,33 @@ const FrameworkControlCatalogPage = () => {
 
       {data && data.items.length > 0 && (
         <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={4}>
-          {data.items.map((control) => (
-            <Box key={control.id} borderWidth="1px" borderRadius="lg" borderColor={cardBorder} bg={cardBg} p={5}>
+          {data.items.map((control) => {
+            const displayCode = (resolveClause(control.metadata) ?? control.id).toUpperCase();
+            const clauseDomain = resolveDomain(control.metadata);
+            return (
+              <Box
+                key={control.id}
+                borderWidth="1px"
+                borderRadius="lg"
+                borderColor={cardBorder}
+                bg={cardBg}
+                p={5}
+              >
               <Stack spacing={3}>
                 <HStack justify="space-between" align="start" spacing={3}>
                   <VStack align="start" spacing={1}>
                     <Heading size="sm">
-                      {control.id.toUpperCase()} — {control.title}
+                      {displayCode} — {control.title}
                     </Heading>
                     <Text color="gray.500">{control.family}</Text>
                     {control.kind === 'enhancement' && control.parentId && (
                       <Badge colorScheme="cyan" variant="subtle">
                         Enhancement of {control.parentId.toUpperCase()}
+                      </Badge>
+                    )}
+                    {clauseDomain && clauseDomain !== control.family && (
+                      <Badge colorScheme="purple" variant="subtle">
+                        {clauseDomain}
                       </Badge>
                     )}
                   </VStack>
@@ -497,7 +528,8 @@ const FrameworkControlCatalogPage = () => {
                 </Flex>
               </Stack>
             </Box>
-          ))}
+            );
+          })}
         </SimpleGrid>
       )}
 
@@ -535,11 +567,22 @@ const FrameworkControlCatalogPage = () => {
           <DrawerCloseButton />
           <DrawerHeader>
             {selectedControl ? (
-              <VStack align="start" spacing={1}>
-                <Heading size="md">{selectedControl.id.toUpperCase()}</Heading>
+              <VStack align="start" spacing={2}>
+                <Heading size="md">
+                  {(resolveClause(selectedControl.metadata) ?? selectedControl.id).toUpperCase()}
+                </Heading>
                 <Text fontSize="sm" color="gray.500">
                   {selectedControl.title}
                 </Text>
+                <HStack spacing={2} flexWrap="wrap">
+                  <Badge colorScheme="blue">{selectedControl.family}</Badge>
+                  {resolveDomain(selectedControl.metadata) &&
+                    resolveDomain(selectedControl.metadata) !== selectedControl.family && (
+                    <Badge colorScheme="purple" variant="subtle">
+                      {resolveDomain(selectedControl.metadata) as string}
+                    </Badge>
+                  )}
+                </HStack>
               </VStack>
             ) : (
               'Control details'
@@ -559,6 +602,11 @@ const FrameworkControlCatalogPage = () => {
                     <Badge colorScheme="orange">
                       Priority: {selectedControl.priority} ({priorityLabels[selectedControl.priority]})
                     </Badge>
+                    {resolveClause(selectedControl.metadata) && (
+                      <Badge colorScheme="purple" variant="outline">
+                        Clause {resolveClause(selectedControl.metadata)}
+                      </Badge>
+                    )}
                   </HStack>
                   {selectedControl.baselines && selectedControl.baselines.length > 0 && (
                     <HStack spacing={2} flexWrap="wrap">

@@ -1,4 +1,4 @@
-export type FrameworkFamily = 'NIST' | 'CIS' | 'PCI' | 'CUSTOM';
+export type FrameworkFamily = 'NIST' | 'CIS' | 'PCI' | 'ISO' | 'CUSTOM';
 
 export type FrameworkStatus = 'DRAFT' | 'PUBLISHED';
 
@@ -49,6 +49,7 @@ export type ControlReference = {
   frameworkId: string;
   title: string;
   family: string;
+  metadata?: Record<string, unknown>;
 };
 
 export type EvidenceReuseHint = {

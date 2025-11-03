@@ -4,22 +4,32 @@ import {
   Button,
   Heading,
   HStack,
+  IconButton,
   Input,
+  Menu,
+  MenuButton,
+  MenuDivider,
+  MenuItem,
+  MenuList,
   SimpleGrid,
   Spinner,
   Stack,
   Text,
   VStack,
-  useColorModeValue
+  useColorModeValue,
+  useToast
 } from '@chakra-ui/react';
 import { useMemo, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
-import { useFrameworks } from '../hooks/use-frameworks';
+import { useDeleteFramework, useFrameworks } from '../hooks/use-frameworks';
 import type { FrameworkSummary } from '../hooks/use-frameworks';
 import CustomFrameworkWizard from '../components/custom-framework-wizard';
+import { FiMoreVertical } from 'react-icons/fi';
 
 const FrameworksPage = () => {
   const { data, isLoading, isError } = useFrameworks();
+  const deleteFramework = useDeleteFramework();
+  const toast = useToast();
   const [search, setSearch] = useState('');
   const [isWizardOpen, setWizardOpen] = useState(false);
   const [selectedFramework, setSelectedFramework] = useState<FrameworkSummary | undefined>(undefined);
@@ -52,6 +62,36 @@ const FrameworksPage = () => {
   const closeWizard = () => {
     setWizardOpen(false);
     setSelectedFramework(undefined);
+  };
+
+  const handleDeleteFramework = async (framework: FrameworkSummary) => {
+    const confirmed = window.confirm(
+      `Remove ${framework.name}? This will delete its controls and crosswalk entries.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await deleteFramework.mutateAsync(framework.id);
+      toast({
+        title: 'Framework removed',
+        description: `${framework.name} has been deleted.`,
+        status: 'success',
+        duration: 3000,
+        isClosable: true
+      });
+    } catch (error) {
+      toast({
+        title: 'Unable to remove framework',
+        description:
+          error instanceof Error ? error.message : 'Unexpected error deleting framework.',
+        status: 'error',
+        duration: 4000,
+        isClosable: true
+      });
+    }
   };
 
   return (
@@ -99,18 +139,48 @@ const FrameworksPage = () => {
                   <Heading size="md">{framework.name}</Heading>
                   <Text color="gray.500">{framework.description}</Text>
                 </VStack>
-                <VStack align="end" spacing={1}>
-                  <Badge fontSize="0.75rem" px={3} py={1} bg={badgeColor}>
-                    {formatFamily(framework.family)}
-                  </Badge>
-                  <Badge
-                    fontSize="0.65rem"
-                    px={2}
-                    py={0.5}
-                    colorScheme={framework.status === 'PUBLISHED' ? 'green' : 'yellow'}
-                  >
-                    {framework.status === 'PUBLISHED' ? 'Published' : 'Draft'}
-                  </Badge>
+                <VStack align="flex-end" spacing={2}>
+                  <Menu placement="bottom-end">
+                    <MenuButton
+                      as={IconButton}
+                      aria-label="Framework options"
+                      icon={<FiMoreVertical />}
+                      variant="ghost"
+                      size="sm"
+                      isDisabled={deleteFramework.isPending}
+                    />
+                    <MenuList>
+                      {framework.isCustom && framework.status === 'DRAFT' ? (
+                        <MenuItem onClick={() => resumeDraft(framework)}>Resume draft</MenuItem>
+                      ) : null}
+                      <MenuItem as={RouterLink} to={`/frameworks/${framework.id}/catalog`}>
+                        Open control catalog
+                      </MenuItem>
+                      <MenuItem as={RouterLink} to={`/frameworks/${framework.id}/crosswalk`}>
+                        Open crosswalk explorer
+                      </MenuItem>
+                      {framework.isCustom ? <MenuDivider /> : null}
+                      <MenuItem
+                        onClick={() => handleDeleteFramework(framework)}
+                        isDisabled={!framework.isCustom || deleteFramework.isPending}
+                      >
+                        Remove framework
+                      </MenuItem>
+                    </MenuList>
+                  </Menu>
+                  <VStack spacing={1} align="flex-end">
+                    <Badge fontSize="0.75rem" px={3} py={1} bg={badgeColor}>
+                      {formatFamily(framework.family)}
+                    </Badge>
+                    <Badge
+                      fontSize="0.65rem"
+                      px={2}
+                      py={0.5}
+                      colorScheme={framework.status === 'PUBLISHED' ? 'green' : 'yellow'}
+                    >
+                      {framework.status === 'PUBLISHED' ? 'Published' : 'Draft'}
+                    </Badge>
+                  </VStack>
                 </VStack>
               </HStack>
               <HStack justify="space-between">

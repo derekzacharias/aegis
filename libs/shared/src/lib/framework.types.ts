@@ -1,4 +1,4 @@
-export type FrameworkFamily = 'NIST' | 'CIS' | 'PCI' | 'CUSTOM';
+export type FrameworkFamily = 'NIST' | 'CIS' | 'PCI' | 'ISO' | 'CUSTOM';
 
 export type FrameworkStatus = 'DRAFT' | 'PUBLISHED';
 

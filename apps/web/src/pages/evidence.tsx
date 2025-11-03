@@ -664,8 +664,8 @@ const EvidencePage = () => {
                       {item.uploadedBy?.name ?? 'Unknown'}
                     </Text>
                   </VStack>
-                  <HStack spacing={2}>
-                    <Menu>
+                  <VStack align="flex-end" spacing={2}>
+                    <Menu placement="bottom-end">
                       <MenuButton
                         as={IconButton}
                         aria-label="Manage evidence"
@@ -706,7 +706,7 @@ const EvidencePage = () => {
                       </MenuList>
                     </Menu>
                     <Badge colorScheme={meta.color}>{meta.label}</Badge>
-                  </HStack>
+                  </VStack>
                 </HStack>
                 <HStack spacing={2} flexWrap="wrap">
                   <Tag size="sm" colorScheme="blue">

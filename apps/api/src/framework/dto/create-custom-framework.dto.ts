@@ -110,7 +110,7 @@ export class CreateCustomFrameworkDto {
   description!: string;
 
   @IsOptional()
-  @IsIn(['NIST', 'CIS', 'PCI', 'CUSTOM'])
+  @IsIn(['NIST', 'CIS', 'PCI', 'ISO', 'CUSTOM'])
   family?: FrameworkFamily;
 
   @IsOptional()

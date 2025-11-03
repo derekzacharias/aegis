@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   NotFoundException,
   Param,
   Patch,
@@ -136,6 +138,16 @@ export class FrameworkController {
   ) {
     await this.ensureFrameworkExists(user.organizationId, frameworkId);
     return this.crosswalkService.upsertManualMapping(frameworkId, payload);
+  }
+
+  @Delete(':frameworkId')
+  @Roles(UserRole.ANALYST, UserRole.ADMIN)
+  @HttpCode(204)
+  async deleteFramework(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('frameworkId') frameworkId: string
+  ): Promise<void> {
+    await this.frameworkService.deleteCustomFramework(user.organizationId, frameworkId);
   }
 
   private async ensureFrameworkExists(organizationId: string, frameworkId: string) {

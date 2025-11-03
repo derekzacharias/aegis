@@ -199,6 +199,59 @@ export class FrameworkService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  async deleteCustomFramework(organizationId: string, frameworkId: string): Promise<void> {
+    const framework = await this.prisma.framework.findFirst({
+      where: { id: frameworkId, organizationId }
+    });
+
+    if (!framework || !framework.isCustom) {
+      throw new NotFoundException(`Framework ${frameworkId} not found`);
+    }
+
+    const [assessmentMemberships, assessmentControls, evidenceMemberships] = await Promise.all([
+      this.prisma.assessmentFramework.count({ where: { frameworkId } }),
+      this.prisma.assessmentControl.count({
+        where: { control: { frameworkId } }
+      }),
+      this.prisma.evidenceFramework.count({ where: { frameworkId } })
+    ]);
+
+    if (assessmentMemberships > 0 || assessmentControls > 0) {
+      throw new BadRequestException(
+        'Framework is linked to assessments. Remove the framework from active assessments before deleting it.'
+      );
+    }
+
+    if (evidenceMemberships > 0) {
+      throw new BadRequestException(
+        'Framework is linked to evidence records. Detach evidence from this framework before deleting it.'
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const controls = await tx.control.findMany({
+        where: { frameworkId },
+        select: { id: true }
+      });
+      const controlIds = controls.map((control) => control.id);
+
+      if (controlIds.length > 0) {
+        await tx.controlMapping.deleteMany({
+          where: {
+            OR: [
+              { sourceControlId: { in: controlIds } },
+              { targetControlId: { in: controlIds } }
+            ]
+          }
+        });
+      }
+
+      await tx.control.deleteMany({ where: { frameworkId } });
+      await tx.evidenceFramework.deleteMany({ where: { frameworkId } });
+      await tx.framework.delete({ where: { id: frameworkId } });
+    });
+  }
+
   async list(organizationId: string): Promise<FrameworkSummary[]> {
     const frameworks = await this.prisma.framework.findMany({
       where: { organizationId },
@@ -684,7 +737,19 @@ export class FrameworkService {
         { title: { contains: term, mode: 'insensitive' } },
         { description: { contains: term, mode: 'insensitive' } },
         { family: { contains: term, mode: 'insensitive' } },
-        { keywords: { has: term } }
+        { keywords: { has: term } },
+        {
+          metadata: {
+            path: ['clause'],
+            string_contains: term
+          }
+        },
+        {
+          metadata: {
+            path: ['domain'],
+            string_contains: term
+          }
+        }
       ];
     }
 

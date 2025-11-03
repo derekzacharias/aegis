@@ -1,4 +1,5 @@
 import { ControlMappingSeed } from '../framework.types';
+import { isoCrosswalkMappings } from './iso-270-controls';
 
 export const controlMappings: ControlMappingSeed[] = [
   {
@@ -34,5 +35,6 @@ export const controlMappings: ControlMappingSeed[] = [
         score: 0.75
       }
     ]
-  }
+  },
+  ...isoCrosswalkMappings
 ];
