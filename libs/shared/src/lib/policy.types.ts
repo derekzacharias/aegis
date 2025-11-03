@@ -7,6 +7,19 @@ export type PolicyUserSummary = {
   role: UserRole;
 };
 
+export type PolicyRetentionConfig = {
+  periodDays: number | null;
+  reason: string | null;
+  expiresAt: string | null;
+};
+
+export type PolicyFrameworkMapping = {
+  frameworkId: string;
+  frameworkName: string;
+  controlFamilies: string[];
+  controlIds: string[];
+};
+
 export type PolicyVersionArtifact = {
   storagePath: string;
   uri: string;
@@ -51,6 +64,7 @@ export type PolicyVersionView = PolicyVersionSummary & {
   supersedesId: string | null;
   artifact: PolicyVersionArtifact;
   approvals: PolicyApprovalView[];
+  frameworks: PolicyFrameworkMapping[];
 };
 
 export type PolicySummary = {
@@ -62,12 +76,15 @@ export type PolicySummary = {
   currentVersion: PolicyVersionSummary | null;
   pendingReviewCount: number;
   lastUpdated: string;
+  frameworks: PolicyFrameworkMapping[];
 };
 
 export type PolicyDetail = PolicySummary & {
   description: string | null;
   reviewCadenceDays: number | null;
   versions: PolicyVersionView[];
+  retention: PolicyRetentionConfig;
+  auditTrail: PolicyAuditEntry[];
 };
 
 export type PolicyParticipantGroups = {
@@ -82,6 +99,15 @@ export type CreatePolicyInput = {
   tags?: string[];
   reviewCadenceDays?: number;
   ownerId?: string;
+  retentionPeriodDays?: number;
+  retentionReason?: string;
+  retentionExpiresAt?: string;
+};
+
+export type PolicyFrameworkMappingInput = {
+  frameworkId: string;
+  controlFamilies?: string[];
+  controlIds?: string[];
 };
 
 export type CreatePolicyVersionInput = {
@@ -89,6 +115,7 @@ export type CreatePolicyVersionInput = {
   notes?: string;
   effectiveAt?: string;
   supersedesVersionId?: string;
+  frameworks?: PolicyFrameworkMappingInput[];
 };
 
 export type SubmitPolicyVersionInput = {
@@ -100,4 +127,22 @@ export type ApprovalDecisionInput = {
   decision: 'approve' | 'reject';
   comment?: string;
   effectiveAt?: string;
+};
+
+export type PolicyAuditEntry = {
+  id: string;
+  action:
+    | 'POLICY_CREATED'
+    | 'VERSION_CREATED'
+    | 'VERSION_SUBMITTED'
+    | 'APPROVAL_RECORDED'
+    | 'VERSION_PUBLISHED'
+    | 'VERSION_ARCHIVED'
+    | 'RETENTION_UPDATED'
+    | 'DOCUMENT_DOWNLOADED';
+  actor: PolicyUserSummary | null;
+  message: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+  versionId: string | null;
 };

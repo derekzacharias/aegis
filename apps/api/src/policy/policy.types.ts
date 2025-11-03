@@ -20,6 +20,19 @@ export type PolicyUserSummary = {
   role: UserRole;
 };
 
+export type PolicyRetentionView = {
+  periodDays: number | null;
+  reason: string | null;
+  expiresAt: string | null;
+};
+
+export type PolicyFrameworkMapping = {
+  frameworkId: string;
+  frameworkName: string;
+  controlFamilies: string[];
+  controlIds: string[];
+};
+
 export type PolicyApprovalView = {
   id: string;
   status: PolicyApprovalStatus;
@@ -54,6 +67,7 @@ export type PolicyVersionView = {
   supersedesId: string | null;
   artifact: PolicyVersionArtifact;
   approvals: PolicyApprovalView[];
+  frameworks: PolicyFrameworkMapping[];
 };
 
 export type PolicyVersionSummary = {
@@ -75,15 +89,28 @@ export type PolicySummary = {
   currentVersion: PolicyVersionSummary | null;
   pendingReviewCount: number;
   lastUpdated: string;
+  frameworks: PolicyFrameworkMapping[];
 };
 
 export type PolicyDetail = PolicySummary & {
   description: string | null;
   reviewCadenceDays: number | null;
   versions: PolicyVersionView[];
+  retention: PolicyRetentionView;
+  auditTrail: PolicyAuditEntry[];
 };
 
 export type PolicyParticipantGroups = {
   authors: PolicyUserSummary[];
   approvers: PolicyUserSummary[];
+};
+
+export type PolicyAuditEntry = {
+  id: string;
+  action: string;
+  actor: PolicyUserSummary | null;
+  message: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+  versionId: string | null;
 };

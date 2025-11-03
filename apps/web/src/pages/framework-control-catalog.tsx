@@ -79,6 +79,49 @@ const assessmentStatusLabels: Record<AssessmentStatus, string> = {
   COMPLETE: 'Complete'
 };
 
+const controlFamilyNames: Record<string, string> = {
+  AC: 'Access Control',
+  AT: 'Awareness and Training',
+  AU: 'Audit and Accountability',
+  CA: 'Assessment, Authorization, and Monitoring',
+  CM: 'Configuration Management',
+  CP: 'Contingency Planning',
+  IA: 'Identification and Authentication',
+  IR: 'Incident Response',
+  MA: 'Maintenance',
+  MP: 'Media Protection',
+  PE: 'Physical and Environmental Protection',
+  PL: 'Planning',
+  PM: 'Program Management',
+  PS: 'Personnel Security',
+  PT: 'Personally Identifiable Information Processing and Transparency',
+  RA: 'Risk Assessment',
+  SA: 'System and Services Acquisition',
+  SC: 'System and Communications Protection',
+  SI: 'System and Information Integrity',
+  SR: 'Supply Chain Risk Management'
+};
+
+const controlFamilyLookup = Object.entries(controlFamilyNames).reduce<Record<string, string>>(
+  (acc, [code, name]) => {
+    acc[code.toUpperCase()] = code;
+    acc[name.toUpperCase()] = code;
+    return acc;
+  },
+  {}
+);
+
+const formatControlFamily = (family: string): string => {
+  const normalized = family.trim();
+  const key = normalized.toUpperCase();
+  const code = controlFamilyLookup[key];
+  if (!code) {
+    return normalized;
+  }
+  const name = controlFamilyNames[code];
+  return name ? `${code}: ${name}` : normalized;
+};
+
 const evidenceStatusColors: Record<EvidenceStatus, string> = {
   APPROVED: 'green',
   PENDING: 'yellow',
@@ -368,7 +411,7 @@ const FrameworkControlCatalogPage = () => {
           <Select placeholder="All families" value={filters.family ?? ''} onChange={handleFamilyChange}>
             {families.map((family) => (
               <option key={family.value} value={family.value}>
-                {family.value} ({family.count})
+                {formatControlFamily(family.value)} ({family.count})
               </option>
             ))}
           </Select>
@@ -418,7 +461,7 @@ const FrameworkControlCatalogPage = () => {
               Total: {total.toLocaleString()}
             </Badge>
             {filters.search && <Badge colorScheme="purple">Search: {filters.search}</Badge>}
-            {filters.family && <Badge colorScheme="teal">Family: {filters.family}</Badge>}
+            {filters.family && <Badge colorScheme="teal">Family: {formatControlFamily(filters.family)}</Badge>}
             {filters.priority && (
               <Badge colorScheme="orange">
                 Priority: {filters.priority} ({priorityLabels[filters.priority]})
@@ -498,7 +541,7 @@ const FrameworkControlCatalogPage = () => {
                         <Heading size="sm">
                           {displayCode} — {control.title}
                         </Heading>
-                        <Text color="gray.500">{control.family}</Text>
+                        <Text color="gray.500">{formatControlFamily(control.family)}</Text>
                         {control.kind === 'enhancement' && control.parentId && (
                           <Badge colorScheme="cyan" variant="subtle">
                             Enhancement of {control.parentId.toUpperCase()}
@@ -607,7 +650,7 @@ const FrameworkControlCatalogPage = () => {
                   {selectedControl.title}
                 </Text>
                 <HStack spacing={2} flexWrap="wrap">
-                  <Badge colorScheme="blue">{selectedControl.family}</Badge>
+                  <Badge colorScheme="blue">{formatControlFamily(selectedControl.family)}</Badge>
                   {resolveDomain(selectedControl.metadata) &&
                     resolveDomain(selectedControl.metadata) !== selectedControl.family && (
                     <Badge colorScheme="purple" variant="subtle">
@@ -627,7 +670,7 @@ const FrameworkControlCatalogPage = () => {
                   <Heading size="sm">Overview</Heading>
                   <Text>{selectedControl.description}</Text>
                   <HStack spacing={2} flexWrap="wrap">
-                    <Badge colorScheme="blue">{selectedControl.family}</Badge>
+                    <Badge colorScheme="blue">{formatControlFamily(selectedControl.family)}</Badge>
                     <Badge colorScheme="cyan">
                       {selectedControl.kind === 'enhancement' ? 'Enhancement control' : 'Base control'}
                     </Badge>

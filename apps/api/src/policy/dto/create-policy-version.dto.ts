@@ -23,4 +23,8 @@ export class CreatePolicyVersionDto {
   @IsOptional()
   @IsString()
   supersedesVersionId?: string;
+
+  @IsOptional()
+  @IsString()
+  frameworkMappings?: string;
 }

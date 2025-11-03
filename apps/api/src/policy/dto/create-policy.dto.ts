@@ -4,6 +4,7 @@ import {
   ArrayUnique,
   IsArray,
   IsInt,
+  IsISO8601,
   IsOptional,
   IsString,
   MaxLength,
@@ -41,4 +42,18 @@ export class CreatePolicyDto {
   @IsOptional()
   @IsString()
   ownerId?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(30)
+  retentionPeriodDays?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  retentionReason?: string;
+
+  @IsOptional()
+  @IsISO8601()
+  retentionExpiresAt?: string;
 }

@@ -5,10 +5,13 @@ import {
   NotFoundException
 } from '@nestjs/common';
 import {
+  Framework,
   PolicyApproval,
   PolicyApprovalStatus,
+  PolicyAuditAction,
   PolicyDocument,
   PolicyVersion,
+  PolicyVersionFramework,
   PolicyVersionStatus,
   Prisma,
   User,
@@ -27,11 +30,15 @@ import { CreatePolicyDto } from './dto/create-policy.dto';
 import { CreatePolicyVersionDto } from './dto/create-policy-version.dto';
 import { SubmitPolicyVersionDto } from './dto/submit-policy-version.dto';
 import { ApprovalDecisionDto } from './dto/approval-decision.dto';
+import { UpdatePolicyDto } from './dto/update-policy.dto';
 import {
   PolicyActor,
   PolicyApprovalView,
+  PolicyAuditEntry,
   PolicyDetail,
+  PolicyFrameworkMapping,
   PolicyParticipantGroups,
+  PolicyRetentionView,
   PolicySummary,
   PolicyUserSummary,
   PolicyVersionSummary,
@@ -42,11 +49,16 @@ type PolicyVersionApprovalRow = PolicyApproval & {
   approver: User;
 };
 
+type PolicyVersionFrameworkRow = PolicyVersionFramework & {
+  framework: Framework;
+};
+
 type PolicyVersionWithApprovals = PolicyVersion & {
   approvals: PolicyVersionApprovalRow[];
   createdBy: User;
   submittedBy: User | null;
   approvedBy: User | null;
+  frameworkMappings: PolicyVersionFrameworkRow[];
 };
 
 type PolicyVersionForView = PolicyVersionWithApprovals & {
@@ -67,12 +79,34 @@ type PolicyVersionWithRelations = PolicyVersionForView & {
 
 type PolicyWithRelations = PolicyDocument & {
   owner: User;
-  currentVersion: (PolicyVersion & { approvals: PolicyApproval[] }) | null;
+  currentVersion: (PolicyVersion & {
+    approvals: PolicyApproval[];
+    frameworkMappings: PolicyVersionFrameworkRow[];
+  }) | null;
   versions: PolicyVersionWithApprovals[];
+  auditTrail: Array<
+    Prisma.PolicyAuditLogGetPayload<{
+      include: { actor: true };
+    }>
+  >;
 };
 
 const AUTHOR_ROLES = new Set<UserRole>([UserRole.ADMIN, UserRole.ANALYST]);
 const APPROVER_ROLES = new Set<UserRole>([UserRole.ADMIN, UserRole.AUDITOR]);
+
+type RawFrameworkMapping = {
+  frameworkId: string;
+  controlFamilies?: string[];
+  controlIds?: string[];
+};
+
+type NormalizedFrameworkMapping = {
+  frameworkId: string;
+  controlFamilies: string[];
+  controlIds: string[];
+};
+
+type TransactionClient = Prisma.TransactionClient;
 
 @Injectable()
 export class PolicyService {
@@ -117,7 +151,12 @@ export class PolicyService {
         owner: true,
         currentVersion: {
           include: {
-            approvals: true
+            approvals: true,
+            frameworkMappings: {
+              include: {
+                framework: true
+              }
+            }
           }
         },
         versions: {
@@ -155,7 +194,10 @@ export class PolicyService {
           ? this.toVersionSummary(policy.currentVersion)
           : null,
         pendingReviewCount,
-        lastUpdated: policy.updatedAt.toISOString()
+        lastUpdated: policy.updatedAt.toISOString(),
+        frameworks: policy.currentVersion
+          ? this.toFrameworkMappings(policy.currentVersion.frameworkMappings)
+          : []
       };
     });
   }
@@ -190,7 +232,10 @@ export class PolicyService {
         owner: true,
         currentVersion: {
           include: {
-            approvals: true
+            approvals: true,
+            frameworkMappings: {
+              include: { framework: true }
+            }
           }
         },
         versions: {
@@ -200,11 +245,20 @@ export class PolicyService {
                 approver: true
               }
             },
+            frameworkMappings: {
+              include: { framework: true }
+            },
             createdBy: true,
             submittedBy: true,
             approvedBy: true
           },
           orderBy: [{ versionNumber: 'desc' }]
+        },
+        auditTrail: {
+          include: {
+            actor: true
+          },
+          orderBy: { createdAt: 'desc' }
         }
       }
     });
@@ -629,6 +683,11 @@ export class PolicyService {
         approvals: {
           include: {
             approver: true
+          }
+        },
+        frameworkMappings: {
+          include: {
+            framework: true
           }
         },
         createdBy: true,

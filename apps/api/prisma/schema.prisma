@@ -60,6 +60,7 @@ model User {
   submittedPolicyVersions PolicyVersion[]         @relation("SubmittedPolicyVersions")
   approvedPolicyVersions  PolicyVersion[]         @relation("ApprovedPolicyVersions")
   policyApprovals         PolicyApproval[]
+  policyAuditEvents       PolicyAuditLog[]    @relation("PolicyAuditActor")
   assessmentControls      AssessmentControl[]
   tasks                   Task[]
   reportRequests          ReportArtifact[]
@@ -96,6 +97,7 @@ model Framework {
   controls              Control[]
   assessmentMemberships AssessmentFramework[]
   evidenceMappings      EvidenceFramework[]
+  policyVersionMappings PolicyVersionFramework[]
 
   @@unique([organizationId, slug])
   @@unique([organizationId, name, version])
@@ -446,9 +448,13 @@ model PolicyDocument {
   reviewCadenceDays Int?
   currentVersion    PolicyVersion?  @relation("CurrentPolicyVersion", fields: [currentVersionId], references: [id])
   currentVersionId  String?         @unique
+  retentionPeriodDays Int?
+  retentionReason     String?
+  retentionExpiresAt  DateTime?
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
   versions          PolicyVersion[]
+  auditTrail        PolicyAuditLog[]
 }
 
 model PolicyVersion {
@@ -481,6 +487,8 @@ model PolicyVersion {
   supersedes    PolicyVersion?      @relation("PolicyVersionSupersedes", fields: [supersedesId], references: [id])
   supersedesId  String?
   supersededBy  PolicyVersion[]     @relation("PolicyVersionSupersedes")
+  frameworkMappings PolicyVersionFramework[]
+  auditTrail        PolicyAuditLog[]
 
   @@unique([policyId, versionNumber])
 }
@@ -498,6 +506,35 @@ model PolicyApproval {
   decisionComment String?
 
   @@unique([policyVersionId, approverId])
+}
+
+model PolicyVersionFramework {
+  id              String         @id @default(cuid())
+  policyVersion   PolicyVersion  @relation(fields: [policyVersionId], references: [id], onDelete: Cascade)
+  policyVersionId String
+  framework       Framework      @relation(fields: [frameworkId], references: [id])
+  frameworkId     String
+  controlFamilies String[]       @default([])
+  controlIds      String[]       @default([])
+
+  @@unique([policyVersionId, frameworkId])
+}
+
+model PolicyAuditLog {
+  id            String             @id @default(cuid())
+  policy        PolicyDocument     @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  policyId      String
+  version       PolicyVersion?     @relation(fields: [policyVersionId], references: [id], onDelete: Cascade)
+  policyVersionId String?
+  action        PolicyAuditAction
+  actor         User?              @relation("PolicyAuditActor", fields: [actorId], references: [id])
+  actorId       String?
+  message       String?
+  metadata      Json?
+  createdAt     DateTime           @default(now())
+
+  @@index([policyId, createdAt])
+  @@index([policyVersionId, createdAt])
 }
 
 enum ImpactLevel {
@@ -656,4 +693,15 @@ enum PolicyApprovalStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+enum PolicyAuditAction {
+  POLICY_CREATED
+  VERSION_CREATED
+  VERSION_SUBMITTED
+  APPROVAL_RECORDED
+  VERSION_PUBLISHED
+  VERSION_ARCHIVED
+  RETENTION_UPDATED
+  DOCUMENT_DOWNLOADED
 }

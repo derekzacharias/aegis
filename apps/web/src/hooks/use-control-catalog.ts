@@ -132,5 +132,6 @@ export const useControlCatalog = (frameworkId: string | undefined, params: Contr
     enabled: Boolean(frameworkId),
     staleTime: 1000 * 60 * 5,
     retry: false,
+    initialPageParam: 1,
     getNextPageParam: (lastPage) => (lastPage.hasNextPage ? lastPage.page + 1 : undefined)
   });
