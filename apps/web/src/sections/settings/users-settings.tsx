@@ -8,6 +8,8 @@ import {
   FormLabel,
   Heading,
   Input,
+  InputGroup,
+  InputRightElement,
   Select,
   SimpleGrid,
   Spinner,
@@ -116,6 +118,45 @@ const UsersSettings = () => {
     });
   };
 
+  const generatePassword = () => {
+    const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const lower = 'abcdefghijklmnopqrstuvwxyz';
+    const numbers = '0123456789';
+    const symbols = '!@#$%^&*()-_=+[]{}<>?';
+    const all = upper + lower + numbers + symbols;
+
+    const pick = (source: string) => source[Math.floor(Math.random() * source.length)];
+
+    let value =
+      pick(upper) +
+      pick(lower) +
+      pick(numbers) +
+      pick(symbols);
+
+    for (let i = value.length; i < 16; i += 1) {
+      value += pick(all);
+    }
+
+    return value
+      .split('')
+      .sort(() => Math.random() - 0.5)
+      .join('');
+  };
+
+  const handleGeneratePassword = () => {
+    const generated = generatePassword();
+    setForm((prev) => ({
+      ...prev,
+      password: generated
+    }));
+    toast({
+      title: 'Temporary password generated',
+      status: 'info',
+      duration: 3000,
+      isClosable: true
+    });
+  };
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -193,13 +234,25 @@ const UsersSettings = () => {
             </FormControl>
             <FormControl isRequired>
               <FormLabel>Temporary Password</FormLabel>
-              <Input
-                type="password"
-                value={form.password}
-                onChange={handleFieldChange('password')}
-                placeholder="Generated password"
-                autoComplete="new-password"
-              />
+              <InputGroup>
+                <Input
+                  type="text"
+                  value={form.password}
+                  onChange={handleFieldChange('password')}
+                  placeholder="Generated password"
+                  autoComplete="new-password"
+                />
+                <InputRightElement width="7.5rem">
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    onClick={handleGeneratePassword}
+                    isDisabled={createUser.isPending}
+                  >
+                    Generate
+                  </Button>
+                </InputRightElement>
+              </InputGroup>
             </FormControl>
             <FormControl>
               <FormLabel>First Name</FormLabel>
@@ -242,7 +295,7 @@ const UsersSettings = () => {
 
       <Card>
         <CardHeader>
-          <Heading size="md">Team Directory</Heading>
+          <Heading size="md">User Directory</Heading>
           <Text color="gray.500" fontSize="sm">
             Manage user roles and monitor activity. Last login values include service accounts and automations.
           </Text>
