@@ -19,3 +19,5 @@ gitignore
 !/workspace.json
 !/jest.preset.js
 !/run
+!/types/
+!/types/**/*
