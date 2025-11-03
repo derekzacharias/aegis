@@ -49,7 +49,11 @@ import {
   useDisclosure,
   useToast
 } from '@chakra-ui/react';
-import { EvidenceRecord, EvidenceStatus } from '@compliance/shared';
+import {
+  EvidenceRecord,
+  EvidenceScanStatus,
+  EvidenceStatus
+} from '@compliance/shared';
 import {
   useCallback,
   useEffect,
@@ -715,12 +719,57 @@ const EvidencePage = () => {
                   <Tag size="sm" colorScheme="purple">
                     Ingestion: {item.ingestionStatus}
                   </Tag>
+                  {item.lastScanStatus && (
+                    <Tag size="sm" colorScheme={scanStatusMeta[item.lastScanStatus].colorScheme}>
+                      AV: {scanStatusMeta[item.lastScanStatus].label}
+                    </Tag>
+                  )}
                   {item.reviewDue && (
                     <Tag size="sm" colorScheme="teal">
                       Review by {new Date(item.reviewDue).toLocaleDateString()}
                     </Tag>
                   )}
                 </HStack>
+                <Box borderWidth="1px" borderColor={cardBorder} borderRadius="md" p={3}>
+                  <VStack align="start" spacing={1}>
+                    <Text fontSize="xs" color="gray.500">
+                      Antivirus scan history
+                    </Text>
+                    <HStack spacing={3} align="center" flexWrap="wrap">
+                      <Text fontSize="sm">
+                        Last scan:{' '}
+                        <Text as="span" fontWeight="semibold">
+                          {formatScanTimestamp(item.lastScanAt)}
+                        </Text>
+                      </Text>
+                      {item.lastScanEngine && (
+                        <Badge colorScheme="gray" fontSize="0.65rem">
+                          Engine: {item.lastScanEngine}
+                        </Badge>
+                      )}
+                      {typeof item.lastScanDurationMs === 'number' && (
+                        <Badge colorScheme="gray" fontSize="0.65rem">
+                          {item.lastScanDurationMs} ms
+                        </Badge>
+                      )}
+                      {typeof item.lastScanBytes === 'number' && (
+                        <Badge colorScheme="gray" fontSize="0.65rem">
+                          {formatSize(item.lastScanBytes)}
+                        </Badge>
+                      )}
+                    </HStack>
+                    {item.lastScanSummary && (
+                      <Text fontSize="sm" color="gray.600">
+                        {item.lastScanSummary}
+                      </Text>
+                    )}
+                    {!item.lastScanStatus && (
+                      <Text fontSize="sm" color="gray.500">
+                        Scan queued after upload – awaiting antivirus results.
+                      </Text>
+                    )}
+                  </VStack>
+                </Box>
                 {item.controlIds.length > 0 && (
                   <Text fontSize="sm" color="gray.400">
                     Controls: {item.controlIds.join(', ')}
@@ -766,6 +815,11 @@ const EvidencePage = () => {
                   >
                     {item.nextAction}
                   </Box>
+                )}
+                {item.ingestionNotes && (
+                  <Text fontSize="sm" color="gray.500">
+                    Ingestion note: {item.ingestionNotes}
+                  </Text>
                 )}
                 {item.retention.periodDays && (
                   <Text fontSize="xs" color="gray.500">
@@ -1212,3 +1266,20 @@ const EvidencePage = () => {
 };
 
 export default EvidencePage;
+const scanStatusMeta: Record<
+  EvidenceScanStatus,
+  { label: string; colorScheme: string }
+> = {
+  PENDING: { label: 'Scan pending', colorScheme: 'gray' },
+  RUNNING: { label: 'Scanning', colorScheme: 'yellow' },
+  CLEAN: { label: 'Clean', colorScheme: 'green' },
+  INFECTED: { label: 'Threat detected', colorScheme: 'red' },
+  FAILED: { label: 'Scan failed', colorScheme: 'orange' }
+};
+
+const formatScanTimestamp = (value: string | null) => {
+  if (!value) {
+    return 'Not scanned yet';
+  }
+  return new Date(value).toLocaleString();
+};

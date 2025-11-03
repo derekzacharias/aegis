@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import apiClient from '../services/api-client';
 import { FrameworkSummary } from './use-frameworks';
 import { EvidenceReuseHint } from './use-crosswalk';
@@ -104,14 +104,13 @@ export type ControlCatalogParams = {
   priority?: ControlPriority;
   type?: 'base' | 'enhancement';
   status?: ControlStatus;
-  page?: number;
   pageSize?: number;
 };
 
 export const useControlCatalog = (frameworkId: string | undefined, params: ControlCatalogParams) =>
-  useQuery<ControlCatalogResponse, Error>({
+  useInfiniteQuery<ControlCatalogResponse, Error>({
     queryKey: ['frameworks', frameworkId, 'controls', params],
-    queryFn: async () => {
+    queryFn: async ({ pageParam = 1 }) => {
       if (!frameworkId) {
         throw new Error('frameworkId is required');
       }
@@ -123,7 +122,7 @@ export const useControlCatalog = (frameworkId: string | undefined, params: Contr
           priority: params.priority || undefined,
           type: params.type || undefined,
           status: params.status || undefined,
-          page: params.page ?? 1,
+          page: pageParam,
           pageSize: params.pageSize ?? 25
         }
       });
@@ -132,5 +131,6 @@ export const useControlCatalog = (frameworkId: string | undefined, params: Contr
     },
     enabled: Boolean(frameworkId),
     staleTime: 1000 * 60 * 5,
-    retry: false
+    retry: false,
+    getNextPageParam: (lastPage) => (lastPage.hasNextPage ? lastPage.page + 1 : undefined)
   });

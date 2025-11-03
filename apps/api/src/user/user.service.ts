@@ -13,6 +13,7 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { AuthenticatedUser } from '../auth/types/auth.types';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
+import { CreateUserDto } from './dto/create-user.dto';
 import {
   DEFAULT_PASSWORD_COMPLEXITY,
   PasswordComplexityRule,
@@ -42,6 +43,78 @@ export class UserService {
     createdAt: true,
     updatedAt: true
   } satisfies Record<keyof UserProfileSelectable, boolean>;
+
+  async listUsers(actor: AuthenticatedUser): Promise<UserProfile[]> {
+    if (actor.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Only administrators can view user directory');
+    }
+
+    const users = await this.prisma.user.findMany({
+      where: { organizationId: actor.organizationId },
+      select: this.profileSelect,
+      orderBy: { createdAt: 'desc' }
+    });
+
+    return users.map((user) => this.toProfile(user));
+  }
+
+  async createUser(actor: AuthenticatedUser, payload: CreateUserDto): Promise<UserProfile> {
+    if (actor.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Only administrators can create users');
+    }
+
+    const email = payload.email.trim().toLowerCase();
+
+    const existing = await this.prisma.user.findUnique({
+      where: { email }
+    });
+
+    if (existing) {
+      throw new BadRequestException('A user with that email already exists');
+    }
+
+    const minLength = this.configService.get<number>('auth.passwordMinLength') ?? 12;
+    const complexityRules =
+      this.configService.get<PasswordComplexityRule[]>('auth.passwordComplexity') ??
+      DEFAULT_PASSWORD_COMPLEXITY;
+
+    const policyError = getPasswordPolicyError(payload.password, minLength, complexityRules);
+
+    if (policyError) {
+      throw new BadRequestException(policyError);
+    }
+
+    const passwordHash = await hash(payload.password, 12);
+
+    const created = await this.prisma.user.create({
+      data: {
+        email,
+        firstName: payload.firstName?.trim() || null,
+        lastName: payload.lastName?.trim() || null,
+        jobTitle: payload.jobTitle?.trim() || null,
+        phoneNumber: payload.phoneNumber?.trim() || null,
+        role: payload.role ?? UserRole.ANALYST,
+        passwordHash,
+        organizationId: actor.organizationId
+      },
+      select: this.profileSelect
+    });
+
+    await this.prisma.userProfileAudit.create({
+      data: {
+        userId: created.id,
+        actorId: actor.id,
+        changes: {
+          created: {
+            previous: null,
+            current: 'created'
+          }
+        } as Prisma.InputJsonValue
+      }
+    });
+
+    return this.toProfile(created);
+  }
 
   async getProfile(userId: string): Promise<UserProfile> {
     const user = await this.prisma.user.findUnique({

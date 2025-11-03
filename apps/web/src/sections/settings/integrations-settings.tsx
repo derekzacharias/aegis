@@ -828,7 +828,13 @@ const IntegrationsSettings = () => {
               </FormLabel>
               <Switch id="cis-agent" colorScheme="brand" defaultChecked />
             </FormControl>
-            <Button variant="outline" colorScheme="brand">
+            <Button
+              as="a"
+              href="/downloads/cis-benchmark-agent.tar.gz"
+              download
+              variant="outline"
+              colorScheme="brand"
+            >
               Download Agent Package
             </Button>
           </Stack>

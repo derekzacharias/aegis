@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { UserProfile, UserProfileAuditEntry } from '@compliance/shared';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -8,11 +8,27 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ProfileAuditQueryDto } from './dto/profile-audit-query.dto';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
+import { CreateUserDto } from './dto/create-user.dto';
 import { UserService } from './user.service';
 
 @Controller('users')
 export class UserController {
   constructor(private readonly userService: UserService) {}
+
+  @Get()
+  @Roles(UserRole.ADMIN)
+  async list(@CurrentUser() actor: AuthenticatedUser): Promise<UserProfile[]> {
+    return this.userService.listUsers(actor);
+  }
+
+  @Post()
+  @Roles(UserRole.ADMIN)
+  async create(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Body() payload: CreateUserDto
+  ): Promise<UserProfile> {
+    return this.userService.createUser(actor, payload);
+  }
 
   @Get('me')
   @Roles(UserRole.READ_ONLY, UserRole.ANALYST, UserRole.AUDITOR, UserRole.ADMIN)

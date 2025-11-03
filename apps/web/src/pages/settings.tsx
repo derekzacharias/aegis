@@ -14,6 +14,7 @@ import TenancySettings from '../sections/settings/tenancy-settings';
 import SecuritySettings from '../sections/settings/security-settings';
 import SchedulerSettings from '../sections/settings/scheduler-settings';
 import ProfileSettings from '../sections/settings/profile-settings';
+import UsersSettings from '../sections/settings/users-settings';
 
 const SettingsPage = () => {
   return (
@@ -27,6 +28,7 @@ const SettingsPage = () => {
       <Tabs variant="enclosed" colorScheme="brand">
         <TabList>
           <Tab>Profile</Tab>
+          <Tab>Users</Tab>
           <Tab>Tenant</Tab>
           <Tab>Integrations</Tab>
           <Tab>Security</Tab>
@@ -35,6 +37,9 @@ const SettingsPage = () => {
         <TabPanels>
           <TabPanel>
             <ProfileSettings />
+          </TabPanel>
+          <TabPanel>
+            <UsersSettings />
           </TabPanel>
           <TabPanel>
             <TenancySettings />

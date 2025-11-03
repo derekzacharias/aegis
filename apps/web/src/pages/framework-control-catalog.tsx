@@ -20,7 +20,6 @@ import {
   Heading,
   HStack,
   Icon,
-  IconButton,
   Input,
   InputGroup,
   InputLeftElement,
@@ -38,14 +37,13 @@ import {
   useDisclosure,
   VStack
 } from '@chakra-ui/react';
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { FiArrowLeft, FiSearch } from 'react-icons/fi';
 import {
   AssessmentStatus,
   ControlCatalogItem,
   ControlCatalogParams,
-  ControlCatalogResponse,
   ControlPriority,
   ControlStatus,
   EvidenceStatus,
@@ -110,7 +108,6 @@ const FrameworkControlCatalogPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const searchParamSignature = searchParams.toString();
-  const page = Math.max(parseInt(searchParams.get('page') ?? '1', 10), 1);
   const pageSize = Math.max(parseInt(searchParams.get('pageSize') ?? '25', 10), 1);
   const filters = useMemo<ControlCatalogParams>(() => {
     const snapshot = new URLSearchParams(searchParamSignature);
@@ -119,14 +116,22 @@ const FrameworkControlCatalogPage = () => {
       family: snapshot.get('family') ?? undefined,
       priority: (snapshot.get('priority') as ControlPriority | null) ?? undefined,
       type: (snapshot.get('type') as 'base' | 'enhancement' | null) ?? undefined,
-      page,
+      status: (snapshot.get('status') as ControlStatus | null) ?? undefined,
       pageSize
     };
-  }, [page, pageSize, searchParamSignature]);
+  }, [pageSize, searchParamSignature]);
 
   const catalogQuery = useControlCatalog(frameworkId, filters);
-  const { isLoading, isFetching, isError, error } = catalogQuery;
-  const data = catalogQuery.data as ControlCatalogResponse | undefined;
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+    isFetching,
+    isError,
+    error
+  } = catalogQuery;
   const {
     isOpen: isDetailOpen,
     onOpen: openDetail,
@@ -134,21 +139,65 @@ const FrameworkControlCatalogPage = () => {
   } = useDisclosure();
   const [selectedControl, setSelectedControl] = useState<ControlCatalogItem | null>(null);
   const [searchInput, setSearchInput] = useState(filters.search ?? '');
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+
+  const pages = data?.pages ?? [];
+  const items = useMemo(() => pages.flatMap((pageData) => pageData.items), [pages]);
+  const firstPage = pages[0];
+  const families = firstPage?.facets.families ?? [];
+  const types = firstPage?.facets.types ?? [];
+  const statuses = firstPage?.facets.statuses ?? [];
+  const total = firstPage?.total ?? 0;
+  const currentFramework = firstPage?.framework;
+  const hasMore = Boolean(hasNextPage);
+  const loadedCount = items.length;
 
   useEffect(() => {
     setSearchInput(filters.search ?? '');
   }, [filters.search]);
 
   useEffect(() => {
-    if (!data || !selectedControl) {
+    if (!selectedControl) {
       return;
     }
 
-    if (!data.items.some((item) => item.id === selectedControl.id)) {
+    if (!items.some((item) => item.id === selectedControl.id)) {
       setSelectedControl(null);
       closeDetail();
     }
-  }, [closeDetail, data, selectedControl]);
+  }, [closeDetail, items, selectedControl]);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [searchParamSignature]);
+
+  useEffect(() => {
+    if (!hasMore) {
+      return;
+    }
+
+    const node = loadMoreRef.current;
+    if (!node) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry?.isIntersecting && hasMore && !isFetchingNextPage) {
+          observer.unobserve(entry.target);
+          fetchNextPage();
+        }
+      },
+      { rootMargin: '400px 0px' }
+    );
+
+    observer.observe(node);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [fetchNextPage, hasMore, isFetchingNextPage, loadedCount]);
 
   const handleSearchChange = (event: ChangeEvent<HTMLInputElement>) => {
     setSearchInput(event.target.value);
@@ -168,7 +217,6 @@ const FrameworkControlCatalogPage = () => {
       } else {
         params.delete('search');
       }
-      params.set('page', '1');
     });
   };
 
@@ -180,7 +228,6 @@ const FrameworkControlCatalogPage = () => {
       } else {
         params.delete('family');
       }
-      params.set('page', '1');
     });
   };
 
@@ -192,7 +239,6 @@ const FrameworkControlCatalogPage = () => {
       } else {
         params.delete('priority');
       }
-      params.set('page', '1');
     });
   };
 
@@ -204,7 +250,6 @@ const FrameworkControlCatalogPage = () => {
       } else {
         params.delete('type');
       }
-      params.set('page', '1');
     });
   };
 
@@ -216,20 +261,12 @@ const FrameworkControlCatalogPage = () => {
       } else {
         params.delete('status');
       }
-      params.set('page', '1');
     });
   };
 
   const handleClearFilters = () => {
     const retained = new URLSearchParams();
     setSearchParams(retained, { replace: true });
-  };
-
-  const handlePageChange = (nextPage: number) => {
-    updateSearchParams((params) => {
-      params.set('page', String(Math.max(1, nextPage)));
-    });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const trackControlOpen = (control: ControlCatalogItem) => {
@@ -259,15 +296,6 @@ const FrameworkControlCatalogPage = () => {
     setSelectedControl(null);
   };
 
-  const families = data?.facets.families ?? [];
-  const types = data?.facets.types ?? [];
-  const statuses = data?.facets.statuses ?? [];
-  const total = data?.total ?? 0;
-  const currentFramework = data?.framework;
-  const currentPage = filters.page ?? 1;
-  const currentPageSize = filters.pageSize ?? 25;
-  const startIndex = total === 0 ? 0 : (currentPage - 1) * currentPageSize + 1;
-  const endIndex = data ? Math.min(total, currentPage * currentPageSize) : 0;
   const statusValue = filters.status ?? '';
 
   const cardBorder = useColorModeValue('gray.200', 'gray.700');
@@ -440,7 +468,7 @@ const FrameworkControlCatalogPage = () => {
         </Alert>
       )}
 
-      {data && data.items.length === 0 && !isLoading && !isError && (
+      {!isLoading && !isError && total === 0 && (
         <Box borderWidth="1px" borderRadius="lg" p={6} textAlign="center">
           <Heading size="md" mb={2}>
             No controls match your filters
@@ -449,116 +477,120 @@ const FrameworkControlCatalogPage = () => {
         </Box>
       )}
 
-      {data && data.items.length > 0 && (
-        <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={4}>
-          {data.items.map((control) => {
-            const displayCode = (resolveClause(control.metadata) ?? control.id).toUpperCase();
-            const clauseDomain = resolveDomain(control.metadata);
-            return (
-              <Box
-                key={control.id}
-                borderWidth="1px"
-                borderRadius="lg"
-                borderColor={cardBorder}
-                bg={cardBg}
-                p={5}
-              >
-              <Stack spacing={3}>
-                <HStack justify="space-between" align="start" spacing={3}>
-                  <VStack align="start" spacing={1}>
-                    <Heading size="sm">
-                      {displayCode} — {control.title}
-                    </Heading>
-                    <Text color="gray.500">{control.family}</Text>
-                    {control.kind === 'enhancement' && control.parentId && (
-                      <Badge colorScheme="cyan" variant="subtle">
-                        Enhancement of {control.parentId.toUpperCase()}
+      {items.length > 0 && (
+        <>
+          <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={4}>
+            {items.map((control) => {
+              const displayCode = (resolveClause(control.metadata) ?? control.id).toUpperCase();
+              const clauseDomain = resolveDomain(control.metadata);
+              return (
+                <Box
+                  key={control.id}
+                  borderWidth="1px"
+                  borderRadius="lg"
+                  borderColor={cardBorder}
+                  bg={cardBg}
+                  p={5}
+                >
+                  <Stack spacing={3}>
+                    <HStack justify="space-between" align="start" spacing={3}>
+                      <VStack align="start" spacing={1}>
+                        <Heading size="sm">
+                          {displayCode} — {control.title}
+                        </Heading>
+                        <Text color="gray.500">{control.family}</Text>
+                        {control.kind === 'enhancement' && control.parentId && (
+                          <Badge colorScheme="cyan" variant="subtle">
+                            Enhancement of {control.parentId.toUpperCase()}
+                          </Badge>
+                        )}
+                        {clauseDomain && clauseDomain !== control.family && (
+                          <Badge colorScheme="purple" variant="subtle">
+                            {clauseDomain}
+                          </Badge>
+                        )}
+                      </VStack>
+                      <Badge px={3} py={1} bg={badgeBg}>
+                        {control.priority} · {priorityLabels[control.priority]}
                       </Badge>
+                    </HStack>
+                    <Text noOfLines={3}>{control.description}</Text>
+                    {control.statusSummary.length > 0 && (
+                      <HStack spacing={2} flexWrap="wrap">
+                        {control.statusSummary.map((status) => (
+                          <Badge key={status.status} colorScheme={statusColors[status.status]}>
+                            {statusLabels[status.status]} ({status.count})
+                          </Badge>
+                        ))}
+                      </HStack>
                     )}
-                    {clauseDomain && clauseDomain !== control.family && (
-                      <Badge colorScheme="purple" variant="subtle">
-                        {clauseDomain}
-                      </Badge>
-                    )}
-                  </VStack>
-                  <Badge px={3} py={1} bg={badgeBg}>
-                    {control.priority} · {priorityLabels[control.priority]}
-                  </Badge>
-                </HStack>
-                <Text noOfLines={3}>{control.description}</Text>
-                {control.statusSummary.length > 0 && (
-                  <HStack spacing={2} flexWrap="wrap">
-                    {control.statusSummary.map((status) => (
-                      <Badge key={status.status} colorScheme={statusColors[status.status]}>
-                        {statusLabels[status.status]} ({status.count})
-                      </Badge>
-                    ))}
-                  </HStack>
-                )}
-                <HStack spacing={4} fontSize="sm" color="gray.500">
-                  <HStack spacing={1}>
-                    <Badge variant="outline" colorScheme="green">
-                      {control.evidence.length}
-                    </Badge>
-                    <Text>Evidence</Text>
-                  </HStack>
-                  <HStack spacing={1}>
-                    <Badge variant="outline" colorScheme="purple">
-                      {control.mappings.length}
-                    </Badge>
-                    <Text>Crosswalk links</Text>
-                  </HStack>
-                  <HStack spacing={1}>
-                    <Badge variant="outline" colorScheme="blue">
-                      {control.assessments.length}
-                    </Badge>
-                    <Text>Assessments</Text>
-                  </HStack>
-                </HStack>
-                <Flex justify="flex-end">
-                  <Button
-                    variant="outline"
-                    colorScheme="brand"
-                    size="sm"
-                    onClick={() => handleOpenDetails(control)}
-                    aria-label={`View details for control ${control.id}`}
-                  >
-                    View details
-                  </Button>
-                </Flex>
-              </Stack>
-            </Box>
-            );
-          })}
-        </SimpleGrid>
-      )}
+                    <HStack spacing={4} fontSize="sm" color="gray.500">
+                      <HStack spacing={1}>
+                        <Badge variant="outline" colorScheme="green">
+                          {control.evidence.length}
+                        </Badge>
+                        <Text>Evidence</Text>
+                      </HStack>
+                      <HStack spacing={1}>
+                        <Badge variant="outline" colorScheme="purple">
+                          {control.mappings.length}
+                        </Badge>
+                        <Text>Crosswalk links</Text>
+                      </HStack>
+                      <HStack spacing={1}>
+                        <Badge variant="outline" colorScheme="blue">
+                          {control.assessments.length}
+                        </Badge>
+                        <Text>Assessments</Text>
+                      </HStack>
+                    </HStack>
+                    <Flex justify="flex-end">
+                      <Button
+                        variant="outline"
+                        colorScheme="brand"
+                        size="sm"
+                        onClick={() => handleOpenDetails(control)}
+                        aria-label={`View details for control ${control.id}`}
+                      >
+                        View details
+                      </Button>
+                    </Flex>
+                  </Stack>
+                </Box>
+              );
+            })}
+          </SimpleGrid>
 
-      {data && data.total > 0 && (
-        <VStack align="stretch" spacing={3}>
-          <Divider />
-          <Flex justify="space-between" align="center" wrap="wrap" gap={3}>
-            <Text fontSize="sm" color="gray.500" aria-live="polite">
-              Showing {startIndex}-{endIndex} of {total.toLocaleString()} controls
-            </Text>
-            <HStack spacing={3}>
-              <IconButton
-                aria-label="Previous page"
-                icon={<Icon as={FiArrowLeft} />}
-                onClick={() => handlePageChange(page - 1)}
-                isDisabled={page <= 1}
-              />
-              <Text fontSize="sm" color="gray.500">
-                Page {page}
+          <VStack align="stretch" spacing={3}>
+            <Divider />
+            <Flex justify="space-between" align="center" wrap="wrap" gap={3}>
+              <Text fontSize="sm" color="gray.500" aria-live="polite">
+                Loaded {loadedCount.toLocaleString()} of {total.toLocaleString()} controls
               </Text>
-              <IconButton
-                aria-label="Next page"
-                icon={<Icon as={FiArrowLeft} transform="rotate(180deg)" />}
-                onClick={() => handlePageChange(page + 1)}
-                isDisabled={!data.hasNextPage}
-              />
-            </HStack>
-          </Flex>
-        </VStack>
+              <HStack spacing={3}>
+                {isFetchingNextPage ? (
+                  <HStack spacing={2}>
+                    <Spinner size="sm" />
+                    <Text fontSize="sm" color="gray.500">
+                      Loading more controls…
+                    </Text>
+                  </HStack>
+                ) : hasMore ? (
+                  <Button variant="outline" colorScheme="brand" size="sm" onClick={() => fetchNextPage()}>
+                    Load more
+                  </Button>
+                ) : (
+                  <Text fontSize="sm" color="gray.400">
+                    All controls loaded
+                  </Text>
+                )}
+              </HStack>
+            </Flex>
+            {hasMore && (
+              <Box ref={loadMoreRef} height="1px" width="100%" aria-hidden="true" pointerEvents="none" />
+            )}
+          </VStack>
+        </>
       )}
 
       <Drawer isOpen={isDetailOpen} placement="right" size="lg" onClose={handleCloseDetails}>

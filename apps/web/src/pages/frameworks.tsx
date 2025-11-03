@@ -1,3 +1,4 @@
+import axios from 'axios';
 import {
   Badge,
   Box,
@@ -83,6 +84,31 @@ const FrameworksPage = () => {
         isClosable: true
       });
     } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status;
+        if (status === 400) {
+          toast({
+            title: 'Framework still in use',
+            description:
+              'Remove this framework from assessments and detach evidence references before deleting it.',
+            status: 'warning',
+            duration: 5000,
+            isClosable: true
+          });
+          return;
+        }
+        if (status === 404) {
+          toast({
+            title: 'Framework cannot be removed',
+            description:
+              'Only custom frameworks without assessment or evidence links can be deleted.',
+            status: 'warning',
+            duration: 5000,
+            isClosable: true
+          });
+          return;
+        }
+      }
       toast({
         title: 'Unable to remove framework',
         description:
