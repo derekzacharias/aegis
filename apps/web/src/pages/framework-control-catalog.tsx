@@ -35,9 +35,10 @@ import {
   Text,
   useColorModeValue,
   useDisclosure,
-  VStack
+  VStack,
+  Tooltip
 } from '@chakra-ui/react';
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { FiArrowLeft, FiSearch } from 'react-icons/fi';
 import {
@@ -122,6 +123,12 @@ const formatControlFamily = (family: string): string => {
   return name ? `${code}: ${name}` : normalized;
 };
 
+const resolveFamilyCode = (family: string): string => {
+  const normalized = family.trim();
+  const key = normalized.toUpperCase();
+  return controlFamilyLookup[key] ?? key;
+};
+
 const evidenceStatusColors: Record<EvidenceStatus, string> = {
   APPROVED: 'green',
   PENDING: 'yellow',
@@ -144,6 +151,9 @@ const resolveDomain = (metadata?: Record<string, unknown> | null): string | unde
   const domain = metadata['domain'];
   return typeof domain === 'string' && domain.trim().length > 0 ? domain : undefined;
 };
+
+const makeFamilyAnchorId = (family: string): string =>
+  `control-family-${family.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
 
 const FrameworkControlCatalogPage = () => {
   const { frameworkId } = useParams<{ frameworkId: string }>();
@@ -194,6 +204,65 @@ const FrameworkControlCatalogPage = () => {
   const currentFramework = firstPage?.framework;
   const hasMore = Boolean(hasNextPage);
   const loadedCount = items.length;
+
+  const firstFamilyControlId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const control of items) {
+      if (!map.has(control.family)) {
+        map.set(control.family, control.id);
+      }
+    }
+    return map;
+  }, [items]);
+
+  const itemFamilyCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const control of items) {
+      counts.set(control.family, (counts.get(control.family) ?? 0) + 1);
+    }
+    return counts;
+  }, [items]);
+
+  const familySections = useMemo(() => {
+    const map = new Map<string, { value: string; label: string; code: string; count?: number }>();
+
+    for (const family of families) {
+      map.set(family.value, {
+        value: family.value,
+        label: formatControlFamily(family.value),
+        code: resolveFamilyCode(family.value),
+        count: family.count
+      });
+    }
+
+    for (const [familyValue, count] of itemFamilyCounts.entries()) {
+      const existing = map.get(familyValue);
+      if (existing) {
+        if (existing.count === undefined) {
+          existing.count = count;
+        }
+      } else {
+        map.set(familyValue, {
+          value: familyValue,
+          label: formatControlFamily(familyValue),
+          code: resolveFamilyCode(familyValue),
+          count
+        });
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) => a.code.localeCompare(b.code, 'en-US'));
+  }, [families, itemFamilyCounts]);
+
+  const familyFacetMap = useMemo(
+    () =>
+      familySections.reduce<Record<string, number | undefined>>((acc, family) => {
+        acc[family.value] = family.count;
+        return acc;
+      }, {}),
+    [familySections]
+  );
+
 
   useEffect(() => {
     setSearchInput(filters.search ?? '');
@@ -251,6 +320,74 @@ const FrameworkControlCatalogPage = () => {
     updater(next);
     setSearchParams(next, { replace: true });
   };
+
+  const anchorFamilyRef = useRef<string | null>(null);
+  const [highlightedFamily, setHighlightedFamily] = useState<string | null>(null);
+
+  useEffect(() => {
+    anchorFamilyRef.current = null;
+  }, [searchParamSignature]);
+
+  useEffect(() => {
+    setHighlightedFamily(filters.family ?? null);
+  }, [filters.family]);
+
+  const scrollToFamilyAnchor = useCallback((family: string) => {
+    if (typeof document === 'undefined') {
+      return false;
+    }
+    const targetId = makeFamilyAnchorId(family);
+    const element = document.getElementById(targetId);
+    if (element) {
+      element.scrollIntoView({ behavior: 'auto', block: 'start' });
+      return true;
+    }
+    return false;
+  }, []);
+
+  const handleScrollToFamily = useCallback(
+    (family: string | null) => {
+      setHighlightedFamily(family);
+
+      if (!family) {
+        anchorFamilyRef.current = null;
+        window.scrollTo({ top: 0, behavior: 'auto' });
+        return;
+      }
+
+      if (scrollToFamilyAnchor(family)) {
+        anchorFamilyRef.current = null;
+        return;
+      }
+
+      anchorFamilyRef.current = family;
+      if (hasMore && !isFetchingNextPage) {
+        fetchNextPage();
+      }
+    },
+    [fetchNextPage, hasMore, isFetchingNextPage, scrollToFamilyAnchor]
+  );
+
+  useEffect(() => {
+    const pendingFamily = anchorFamilyRef.current;
+    if (!pendingFamily) {
+      return;
+    }
+
+    if (scrollToFamilyAnchor(pendingFamily)) {
+      anchorFamilyRef.current = null;
+      return;
+    }
+
+    if (hasMore && !isFetchingNextPage) {
+      fetchNextPage();
+      return;
+    }
+
+    if (!hasMore && !isFetchingNextPage) {
+      anchorFamilyRef.current = null;
+    }
+  }, [fetchNextPage, hasMore, isFetchingNextPage, items, scrollToFamilyAnchor]);
 
   const handleSearchSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -345,9 +482,19 @@ const FrameworkControlCatalogPage = () => {
   const cardBg = useColorModeValue('white', 'gray.800');
   const badgeBg = useColorModeValue('gray.100', 'gray.700');
   const drawerDivider = useColorModeValue('gray.100', 'gray.700');
+  const anchorBg = useColorModeValue('white', 'gray.900');
+  const anchorBorder = useColorModeValue('gray.200', 'gray.700');
+  const anchorHoverBg = useColorModeValue('gray.100', 'gray.600');
+  const anchorRailWidth = 240;
+  const anchorRailOffset = 32;
 
   return (
-    <VStack align="stretch" spacing={6}>
+    <VStack
+      align="stretch"
+      spacing={6}
+      pr={{ base: 0, xl: `${anchorRailWidth + anchorRailOffset}px` }}
+      position="relative"
+    >
       <HStack justify="space-between">
         <Button leftIcon={<Icon as={FiArrowLeft} />} variant="ghost" onClick={() => navigate(-1)}>
           Back
@@ -521,119 +668,192 @@ const FrameworkControlCatalogPage = () => {
       )}
 
       {items.length > 0 && (
-        <>
-          <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={4}>
-            {items.map((control) => {
-              const displayCode = (resolveClause(control.metadata) ?? control.id).toUpperCase();
-              const clauseDomain = resolveDomain(control.metadata);
-              return (
-                <Box
-                  key={control.id}
-                  borderWidth="1px"
-                  borderRadius="lg"
-                  borderColor={cardBorder}
-                  bg={cardBg}
-                  p={5}
-                >
-                  <Stack spacing={3}>
-                    <HStack justify="space-between" align="start" spacing={3}>
-                      <VStack align="start" spacing={1}>
-                        <Heading size="sm">
-                          {displayCode} — {control.title}
-                        </Heading>
-                        <Text color="gray.500">{formatControlFamily(control.family)}</Text>
-                        {control.kind === 'enhancement' && control.parentId && (
-                          <Badge colorScheme="cyan" variant="subtle">
-                            Enhancement of {control.parentId.toUpperCase()}
+        <Flex direction={{ base: 'column', xl: 'row' }} align="start" gap={6}>
+          <Box flex="1">
+            <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={4}>
+              {items.map((control) => {
+                const displayCode = (resolveClause(control.metadata) ?? control.id).toUpperCase();
+                const clauseDomain = resolveDomain(control.metadata);
+                const anchorId =
+                  firstFamilyControlId.get(control.family) === control.id
+                    ? makeFamilyAnchorId(control.family)
+                    : undefined;
+                return (
+                  <Box
+                    key={control.id}
+                    id={anchorId}
+                    scrollMarginTop="96px"
+                    borderWidth="1px"
+                    borderRadius="lg"
+                    borderColor={cardBorder}
+                    bg={cardBg}
+                    p={5}
+                  >
+                    <Stack spacing={3}>
+                      <HStack justify="space-between" align="start" spacing={3}>
+                        <VStack align="start" spacing={1}>
+                          <Heading size="sm">
+                            {displayCode} — {control.title}
+                          </Heading>
+                          <Text color="gray.500">{formatControlFamily(control.family)}</Text>
+                          {control.kind === 'enhancement' && control.parentId && (
+                            <Badge colorScheme="cyan" variant="subtle">
+                              Enhancement of {control.parentId.toUpperCase()}
+                            </Badge>
+                          )}
+                          {clauseDomain && clauseDomain !== control.family && (
+                            <Badge colorScheme="purple" variant="subtle">
+                              {clauseDomain}
+                            </Badge>
+                          )}
+                        </VStack>
+                        <Badge px={3} py={1} bg={badgeBg}>
+                          {control.priority} · {priorityLabels[control.priority]}
+                        </Badge>
+                      </HStack>
+                      <Text noOfLines={3}>{control.description}</Text>
+                      {control.statusSummary.length > 0 && (
+                        <HStack spacing={2} flexWrap="wrap">
+                          {control.statusSummary.map((status) => (
+                            <Badge key={status.status} colorScheme={statusColors[status.status]}>
+                              {statusLabels[status.status]} ({status.count})
+                            </Badge>
+                          ))}
+                        </HStack>
+                      )}
+                      <HStack spacing={4} fontSize="sm" color="gray.500">
+                        <HStack spacing={1}>
+                          <Badge variant="outline" colorScheme="green">
+                            {control.evidence.length}
                           </Badge>
-                        )}
-                        {clauseDomain && clauseDomain !== control.family && (
-                          <Badge colorScheme="purple" variant="subtle">
-                            {clauseDomain}
+                          <Text>Evidence</Text>
+                        </HStack>
+                        <HStack spacing={1}>
+                          <Badge variant="outline" colorScheme="purple">
+                            {control.mappings.length}
                           </Badge>
-                        )}
-                      </VStack>
-                      <Badge px={3} py={1} bg={badgeBg}>
-                        {control.priority} · {priorityLabels[control.priority]}
-                      </Badge>
+                          <Text>Crosswalk links</Text>
+                        </HStack>
+                        <HStack spacing={1}>
+                          <Badge variant="outline" colorScheme="blue">
+                            {control.assessments.length}
+                          </Badge>
+                          <Text>Assessments</Text>
+                        </HStack>
+                      </HStack>
+                      <Flex justify="flex-end">
+                        <Button
+                          variant="outline"
+                          colorScheme="brand"
+                          size="sm"
+                          onClick={() => handleOpenDetails(control)}
+                          aria-label={`View details for control ${control.id}`}
+                        >
+                          View details
+                        </Button>
+                      </Flex>
+                    </Stack>
+                  </Box>
+                );
+              })}
+            </SimpleGrid>
+
+            <VStack align="stretch" spacing={3} mt={6}>
+              <Divider />
+              <Flex justify="space-between" align="center" wrap="wrap" gap={3}>
+                <Text fontSize="sm" color="gray.500" aria-live="polite">
+                  Loaded {loadedCount.toLocaleString()} of {total.toLocaleString()} controls
+                </Text>
+                <HStack spacing={3}>
+                  {isFetchingNextPage ? (
+                    <HStack spacing={2}>
+                      <Spinner size="sm" />
+                      <Text fontSize="sm" color="gray.500">
+                        Loading more controls…
+                      </Text>
                     </HStack>
-                    <Text noOfLines={3}>{control.description}</Text>
-                    {control.statusSummary.length > 0 && (
-                      <HStack spacing={2} flexWrap="wrap">
-                        {control.statusSummary.map((status) => (
-                          <Badge key={status.status} colorScheme={statusColors[status.status]}>
-                            {statusLabels[status.status]} ({status.count})
-                          </Badge>
-                        ))}
-                      </HStack>
-                    )}
-                    <HStack spacing={4} fontSize="sm" color="gray.500">
-                      <HStack spacing={1}>
-                        <Badge variant="outline" colorScheme="green">
-                          {control.evidence.length}
-                        </Badge>
-                        <Text>Evidence</Text>
-                      </HStack>
-                      <HStack spacing={1}>
-                        <Badge variant="outline" colorScheme="purple">
-                          {control.mappings.length}
-                        </Badge>
-                        <Text>Crosswalk links</Text>
-                      </HStack>
-                      <HStack spacing={1}>
-                        <Badge variant="outline" colorScheme="blue">
-                          {control.assessments.length}
-                        </Badge>
-                        <Text>Assessments</Text>
-                      </HStack>
-                    </HStack>
-                    <Flex justify="flex-end">
+                  ) : hasMore ? (
+                    <Button variant="outline" colorScheme="brand" size="sm" onClick={() => fetchNextPage()}>
+                      Load more
+                    </Button>
+                  ) : (
+                    <Text fontSize="sm" color="gray.400">
+                      All controls loaded
+                    </Text>
+                  )}
+                </HStack>
+              </Flex>
+              {hasMore && (
+                <Box ref={loadMoreRef} height="1px" width="100%" aria-hidden="true" pointerEvents="none" />
+              )}
+            </VStack>
+          </Box>
+
+          {familySections.length > 0 && (
+            <Box
+              display={{ base: 'none', xl: 'block' }}
+              width={`${anchorRailWidth}px`}
+              position="fixed"
+              right={`${anchorRailOffset}px`}
+              top="120px"
+              zIndex="sticky"
+            >
+              <Stack
+                spacing={3}
+                borderWidth="1px"
+                borderColor={anchorBorder}
+                bg={anchorBg}
+                borderRadius="lg"
+                p={4}
+                boxShadow="lg"
+                maxH="calc(100vh - 160px)"
+                overflowY="auto"
+              >
+                <Heading size="sm">Jump to family</Heading>
+                <Stack spacing={1}>
+                  <Button
+                    variant={highlightedFamily === null ? 'solid' : 'ghost'}
+                    colorScheme="brand"
+                    size="sm"
+                    justifyContent="space-between"
+                    onClick={() => handleScrollToFamily(null)}
+                    _hover={{ bg: anchorHoverBg }}
+                    aria-label="Show all control families"
+                  >
+                    <Text flex="1" textAlign="left">
+                      All
+                    </Text>
+                    <Badge colorScheme="blue" variant="subtle">
+                      {total.toLocaleString()}
+                    </Badge>
+                  </Button>
+                  {familySections.map(({ value, label, code }) => (
+                    <Tooltip key={value} label={label} placement="left" hasArrow>
                       <Button
-                        variant="outline"
+                        variant={highlightedFamily === value ? 'solid' : 'ghost'}
                         colorScheme="brand"
                         size="sm"
-                        onClick={() => handleOpenDetails(control)}
-                        aria-label={`View details for control ${control.id}`}
+                        justifyContent="space-between"
+                        onClick={() => handleScrollToFamily(value)}
+                        _hover={{ bg: anchorHoverBg }}
+                        aria-label={label}
                       >
-                        View details
+                        <Text flex="1" textAlign="left">
+                          {code}
+                        </Text>
+                        {typeof familyFacetMap[value] === 'number' && (
+                          <Badge colorScheme="blue" variant="subtle">
+                            {familyFacetMap[value]?.toLocaleString()}
+                          </Badge>
+                        )}
                       </Button>
-                    </Flex>
-                  </Stack>
-                </Box>
-              );
-            })}
-          </SimpleGrid>
-
-          <VStack align="stretch" spacing={3}>
-            <Divider />
-            <Flex justify="space-between" align="center" wrap="wrap" gap={3}>
-              <Text fontSize="sm" color="gray.500" aria-live="polite">
-                Loaded {loadedCount.toLocaleString()} of {total.toLocaleString()} controls
-              </Text>
-              <HStack spacing={3}>
-                {isFetchingNextPage ? (
-                  <HStack spacing={2}>
-                    <Spinner size="sm" />
-                    <Text fontSize="sm" color="gray.500">
-                      Loading more controls…
-                    </Text>
-                  </HStack>
-                ) : hasMore ? (
-                  <Button variant="outline" colorScheme="brand" size="sm" onClick={() => fetchNextPage()}>
-                    Load more
-                  </Button>
-                ) : (
-                  <Text fontSize="sm" color="gray.400">
-                    All controls loaded
-                  </Text>
-                )}
-              </HStack>
-            </Flex>
-            {hasMore && (
-              <Box ref={loadMoreRef} height="1px" width="100%" aria-hidden="true" pointerEvents="none" />
-            )}
-          </VStack>
-        </>
+                    </Tooltip>
+                  ))}
+                </Stack>
+              </Stack>
+            </Box>
+          )}
+        </Flex>
       )}
 
       <Drawer isOpen={isDetailOpen} placement="right" size="lg" onClose={handleCloseDetails}>
