@@ -34,6 +34,14 @@ export interface ReportJobResult {
   notes?: Record<string, unknown>;
 }
 
+export interface ReportArtifactSummary {
+  id: string;
+  format: ReportFormat;
+  filename: string;
+  createdAt: string;
+  metadata: ReportArtifactMetadata;
+}
+
 export interface ReportJobView {
   jobId: string;
   assessmentId: string;
@@ -46,4 +54,5 @@ export interface ReportJobView {
   artifactIds: string[];
   downloadUrl: string | null;
   error: string | null;
+  artifacts: ReportArtifactSummary[];
 }

@@ -128,6 +128,29 @@ const ReportsPage = () => {
                     </Tag>
                   ))}
                 </HStack>
+                {job.artifacts.length > 0 && (
+                  <Box mt={2}>
+                    <Text fontSize="xs" color="gray.400" fontWeight="semibold">
+                      Artifacts
+                    </Text>
+                    <VStack align="start" spacing={1} fontSize="xs">
+                      {job.artifacts.map((artifact) => (
+                        <HStack key={artifact.id} spacing={2} align="center">
+                          <Tag size="sm" variant="subtle" colorScheme="blue">
+                            {artifact.format.toUpperCase()}
+                          </Tag>
+                          <Text color="gray.300">
+                            {artifact.filename} · {artifact.metadata.mediaType}
+                          </Text>
+                          <Text color="gray.500">
+                            v{artifact.metadata.version} ·{' '}
+                            {new Date(artifact.metadata.generatedAt).toLocaleString()}
+                          </Text>
+                        </HStack>
+                      ))}
+                    </VStack>
+                  </Box>
+                )}
               </VStack>
               <VStack align="end" spacing={2}>
                 <Badge colorScheme={meta.color}>{meta.label}</Badge>
