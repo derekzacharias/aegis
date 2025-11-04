@@ -1,3 +1,5 @@
+version 1.0
+
 # Implementation Backlog
 
 Our immediate goal is to mature Aegis into a framework-agnostic GRC platform that can evaluate and maintain compliance for whichever standards a customer selects—beginning with DoD RMF, FedRAMP, NIST CSF, ISO 27001, HIPAA, and PCI DSS—via automated assessment capabilities, and the backlog priorities below should be interpreted through that multi-framework lens even as we finalize the exact automation approach.
