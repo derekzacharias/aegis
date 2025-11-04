@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Param,
+  Delete,
   Patch,
   Post,
   Res,
@@ -29,6 +30,7 @@ import { CreatePolicyVersionDto } from './dto/create-policy-version.dto';
 import { SubmitPolicyVersionDto } from './dto/submit-policy-version.dto';
 import { UpdatePolicyDto } from './dto/update-policy.dto';
 import { ApprovalDecisionDto } from './dto/approval-decision.dto';
+import { UpdatePolicyVersionDto } from './dto/update-policy-version.dto';
 
 @Controller('policies')
 @UseGuards(PolicyActorGuard)
@@ -90,6 +92,25 @@ export class PolicyController {
     }
 
     return this.policyService.createVersion(policyId, actor, dto, file);
+  }
+
+  @Patch(':policyId/versions/:versionId')
+  async updateVersion(
+    @Param('policyId') policyId: string,
+    @Param('versionId') versionId: string,
+    @Body() dto: UpdatePolicyVersionDto,
+    @PolicyActor() actor: PolicyActorContext
+  ): Promise<PolicyVersionView> {
+    return this.policyService.updateVersion(policyId, versionId, actor, dto);
+  }
+
+  @Delete(':policyId/versions/:versionId')
+  async deleteVersion(
+    @Param('policyId') policyId: string,
+    @Param('versionId') versionId: string,
+    @PolicyActor() actor: PolicyActorContext
+  ): Promise<PolicyDetail> {
+    return this.policyService.deleteVersion(policyId, versionId, actor);
   }
 
   @Post(':policyId/versions/:versionId/submit')
