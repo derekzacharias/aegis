@@ -123,3 +123,13 @@ export const useBulkUpdateRoles = () => {
     }
   });
 };
+
+export const useExportUsersCsv = () =>
+  useMutation({
+    mutationFn: async () => {
+      const response = await apiClient.get<string>('/users/export', {
+        responseType: 'text'
+      });
+      return response.data;
+    }
+  });

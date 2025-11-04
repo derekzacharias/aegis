@@ -63,7 +63,7 @@ export class UserController {
     return this.userService.revokeInvite(actor, inviteId);
   }
 
-  @Post(':userId/force-password-reset')
+  @Post(':userId/force-reset')
   @Roles(UserRole.ADMIN)
   async forcePasswordReset(
     @CurrentUser() actor: AuthenticatedUser,
@@ -73,7 +73,7 @@ export class UserController {
     return this.userService.forcePasswordReset(actor, userId, payload);
   }
 
-  @Post('bulk/role')
+  @Post('roles/bulk')
   @Roles(UserRole.ADMIN)
   async bulkUpdateRoles(
     @CurrentUser() actor: AuthenticatedUser,
@@ -88,37 +88,10 @@ export class UserController {
     @CurrentUser() actor: AuthenticatedUser,
     @Res() res: Response
   ): Promise<void> {
-    const csv = await this.userService.exportUsersCsv(actor);
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename="users.csv"');
-    res.send(csv);
-  }
-
-  @Get('invites')
-  @Roles(UserRole.ADMIN)
-  async listInvites(@CurrentUser() actor: AuthenticatedUser): Promise<UserInviteSummary[]> {
-    return this.userService.listInvites(actor);
-  }
-
-  @Post('invites')
-  @Roles(UserRole.ADMIN)
-  async createInvite(
-    @CurrentUser() actor: AuthenticatedUser,
-    @Body() payload: CreateInviteDto
-  ): Promise<UserInviteSummary> {
-    return this.userService.createInvite(actor, payload);
-  }
-
-  @Get('export')
-  @Roles(UserRole.ADMIN)
-  async exportUsers(
-    @CurrentUser() actor: AuthenticatedUser,
-    @Res({ passthrough: true }) res: Response
-  ): Promise<string> {
-    const { filename, content } = await this.userService.exportUsersCsv(actor);
+    const { csv, filename } = await this.userService.exportUsersCsv(actor);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    return content;
+    res.send(csv);
   }
 
   @Get('me')
@@ -153,25 +126,6 @@ export class UserController {
     @Query() query: ProfileAuditQueryDto
   ): Promise<UserProfileAuditEntry[]> {
     return this.userService.listAuditEntries(user.id, query.limit ?? 20);
-  }
-
-  @Post('roles/bulk')
-  @Roles(UserRole.ADMIN)
-  async bulkUpdateRoles(
-    @CurrentUser() actor: AuthenticatedUser,
-    @Body() payload: BulkUpdateRolesDto
-  ): Promise<UserProfile[]> {
-    return this.userService.bulkUpdateRoles(actor, payload);
-  }
-
-  @Post(':userId/force-reset')
-  @Roles(UserRole.ADMIN)
-  async forcePasswordReset(
-    @CurrentUser() actor: AuthenticatedUser,
-    @Param('userId') userId: string,
-    @Body() payload: ForcePasswordResetDto
-  ): Promise<ForcePasswordResetResult> {
-    return this.userService.forcePasswordReset(actor, userId, payload);
   }
 
   @Patch(':userId/role')

@@ -93,106 +93,8 @@ export class AuthService {
   }
 
   async acceptInvite(payload: AcceptInviteDto): Promise<AuthResponse> {
-    const token = payload.token.trim();
-    const tokenHash = this.hashToken(token);
     const normalizedEmail = payload.email.trim().toLowerCase();
-    const now = new Date();
-
-    const invite = await this.prisma.userInvite.findFirst({
-      where: {
-        tokenHash,
-        revokedAt: null
-      },
-      include: {
-        organization: {
-          select: { id: true }
-        }
-      }
-    });
-
-    if (!invite || invite.expiresAt <= now) {
-      throw new BadRequestException('Invalid or expired invite');
-    }
-
-    if (invite.email.toLowerCase() !== normalizedEmail) {
-      throw new BadRequestException('Invite email does not match');
-    }
-
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email: normalizedEmail }
-    });
-
-    if (existingUser) {
-      throw new ConflictException('Email is already registered');
-    }
-
-    this.ensurePasswordPolicy(payload.password);
-
-    const passwordHash = await hash(payload.password, 12);
-    const passwordChangedAt = new Date();
-
-    const user = await this.prisma.$transaction(async (tx) => {
-      await tx.userInvite.update({
-        where: { id: invite.id },
-        data: { acceptedAt: new Date() }
-      });
-
-      const created = await tx.user.create({
-        data: {
-          email: normalizedEmail,
-          firstName: payload.firstName?.trim() || null,
-          lastName: payload.lastName?.trim() || null,
-          jobTitle: payload.jobTitle?.trim() || null,
-          phoneNumber: payload.phoneNumber?.trim() || null,
-          passwordHash,
-          passwordChangedAt,
-          role: invite.role,
-          organizationId: invite.organizationId,
-          mustResetPassword: false
-        }
-      });
-
-      await tx.userProfileAudit.create({
-        data: {
-          userId: created.id,
-          actorId: null,
-          changes: {
-            invited: {
-              previous: invite.email,
-              current: 'accepted',
-              inviteId: invite.id
-            }
-          } as Prisma.InputJsonValue
-        }
-      });
-
-      return created;
-    });
-
-    const tokens = await this.generateTokens(user);
-    const { refreshTokenId, ...publicTokens } = tokens;
-    await this.storeRefreshToken(user.id, publicTokens.refreshToken, refreshTokenId, {
-      lastLoginAt: new Date()
-    });
-
-    this.logger.log(
-      JSON.stringify({
-        event: 'auth.invite.accepted',
-        inviteId: invite.id,
-        userId: user.id,
-        email: user.email
-      })
-    );
-
-    return {
-      user: this.sanitizeUser(user),
-      tokens: publicTokens
-    };
-  }
-
-  async acceptInvite(payload: AcceptInviteDto): Promise<AuthResponse> {
-    const normalizedEmail = payload.email.trim().toLowerCase();
-    const tokenHash = this.hashOpaqueToken(payload.token);
+    const tokenHash = this.hashToken(payload.token.trim());
     const now = new Date();
 
     const invite = await this.prisma.userInvite.findFirst({
@@ -207,11 +109,11 @@ export class AuthService {
     });
 
     if (!invite) {
-      throw new UnauthorizedException('Invalid or expired invite token');
+      throw new BadRequestException('Invalid or expired invite token');
     }
 
     if (invite.email.trim().toLowerCase() !== normalizedEmail) {
-      throw new UnauthorizedException('Invite token does not match email');
+      throw new BadRequestException('Invite token does not match email');
     }
 
     const existing = await this.prisma.user.findUnique({
@@ -280,85 +182,6 @@ export class AuthService {
       user: this.sanitizeUser(createdUser),
       tokens: publicTokens
     };
-  }
-
-  async resetPasswordWithToken(payload: ResetPasswordDto): Promise<void> {
-    const tokenHash = this.hashOpaqueToken(payload.token);
-    const now = new Date();
-
-    const resetRecord = await this.prisma.userPasswordResetToken.findFirst({
-      where: {
-        tokenHash,
-        consumedAt: null,
-        expiresAt: {
-          gt: now
-        }
-      }
-    });
-
-    if (!resetRecord) {
-      throw new UnauthorizedException('Invalid or expired reset token');
-    }
-
-    const user = await this.prisma.user.findUnique({
-      where: { id: resetRecord.userId }
-    });
-
-    if (!user) {
-      throw new UnauthorizedException('Invalid reset token');
-    }
-
-    this.ensurePasswordPolicy(payload.password);
-
-    const newHash = await hash(payload.password, 12);
-    const passwordChangedAt = new Date();
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.user.update({
-        where: { id: user.id },
-        data: {
-          passwordHash: newHash,
-          passwordChangedAt,
-          mustResetPassword: false,
-          refreshTokenHash: null,
-          refreshTokenId: null,
-          refreshTokenIssuedAt: null,
-          refreshTokenInvalidatedAt: passwordChangedAt
-        }
-      });
-
-      await tx.userPasswordResetToken.update({
-        where: { id: resetRecord.id },
-        data: {
-          consumedAt: passwordChangedAt
-        }
-      });
-
-      await tx.userPasswordResetToken.updateMany({
-        where: {
-          userId: user.id,
-          consumedAt: null,
-          id: { not: resetRecord.id }
-        },
-        data: {
-          consumedAt: passwordChangedAt
-        }
-      });
-
-      await tx.userProfileAudit.create({
-        data: {
-          userId: user.id,
-          actorId: null,
-          changes: {
-            passwordReset: {
-              previous: 'pending',
-              current: 'completed'
-            }
-          } as Prisma.InputJsonValue,
-          createdAt: passwordChangedAt
-        }
-      });
-    });
   }
 
   async login(payload: LoginDto): Promise<AuthResponse> {
@@ -710,10 +533,6 @@ export class AuthService {
         ...(extra ?? {})
       }
     });
-  }
-
-  private hashOpaqueToken(token: string): string {
-    return createHash('sha256').update(token).digest('hex');
   }
 
   private ensureRole(role?: UserRole): UserRole {

@@ -136,7 +136,7 @@ export class UserService {
 
     const expiresInHours = payload.expiresInHours ?? 72;
     const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
-    const { token, hash: tokenHash } = this.generateOpaqueToken();
+    const { token, hash: tokenHash } = this.generateToken();
 
     const invite = await this.prisma.$transaction(async (tx) => {
       if (existingInvite) {
@@ -272,7 +272,7 @@ export class UserService {
 
     const expiresInHours = payload.expiresInHours ?? 48;
     const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
-    const { token, hash } = this.generateOpaqueToken();
+    const { token, hash } = this.generateToken();
     const issuedAt = new Date();
 
     await this.prisma.$transaction(async (tx) => {
@@ -386,7 +386,7 @@ export class UserService {
     return updatedUsers;
   }
 
-  async exportUsersCsv(actor: AuthenticatedUser): Promise<string> {
+  async exportUsersCsv(actor: AuthenticatedUser): Promise<{ filename: string; csv: string }> {
     const users = await this.listUsers(actor);
 
     const header = [
@@ -402,22 +402,28 @@ export class UserService {
       'Updated At'
     ].join(',');
 
-    const rows = users.map((user) => [
-      user.email,
-      user.firstName ?? '',
-      user.lastName ?? '',
-      user.role,
-      user.jobTitle ?? '',
-      user.phoneNumber ?? '',
-      user.mustResetPassword ? 'true' : 'false',
-      user.lastLoginAt ?? '',
-      user.createdAt ?? '',
-      user.updatedAt ?? ''
-    ]
-      .map((value) => this.escapeCsv(value))
-      .join(','));
+    const rows = users.map((user) =>
+      [
+        user.email,
+        user.firstName ?? '',
+        user.lastName ?? '',
+        user.role,
+        user.jobTitle ?? '',
+        user.phoneNumber ?? '',
+        user.mustResetPassword ? 'true' : 'false',
+        user.lastLoginAt ?? '',
+        user.createdAt,
+        user.updatedAt
+      ]
+        .map((value) => this.escapeCsv(String(value ?? '')))
+        .join(',')
+    );
 
-    return [header, ...rows].join('\n');
+    const csv = [header, ...rows].join('\n');
+    const dateStamp = new Date().toISOString().split('T')[0];
+    const filename = `users-${actor.organizationId}-${dateStamp}.csv`;
+
+    return { filename, csv };
   }
 
   async createUser(actor: AuthenticatedUser, payload: CreateUserDto): Promise<UserProfile> {
@@ -475,261 +481,6 @@ export class UserService {
     });
 
     return this.toProfile(created);
-  }
-
-  async listInvites(actor: AuthenticatedUser): Promise<UserInviteSummary[]> {
-    if (actor.role !== UserRole.ADMIN) {
-      throw new ForbiddenException('Only administrators can view invites');
-    }
-
-    const invites = await this.prisma.userInvite.findMany({
-      where: { organizationId: actor.organizationId },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        invitedBy: {
-          select: {
-            firstName: true,
-            lastName: true,
-            email: true
-          }
-        }
-      }
-    });
-
-    return invites.map((invite) => this.toInviteSummary(invite, undefined));
-  }
-
-  async createInvite(
-    actor: AuthenticatedUser,
-    payload: CreateInviteDto
-  ): Promise<UserInviteSummary> {
-    if (actor.role !== UserRole.ADMIN) {
-      throw new ForbiddenException('Only administrators can invite users');
-    }
-
-    const email = payload.email.trim().toLowerCase();
-
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email }
-    });
-
-    if (existingUser) {
-      throw new BadRequestException('A user with that email already exists');
-    }
-
-    const expiresAt = this.computeExpiryDate(
-      payload.expiresInHours,
-      this.getInviteExpiryHours()
-    );
-    const { token, hash: tokenHash } = this.generateToken();
-
-    const invite = await this.prisma.$transaction(async (tx) => {
-      await tx.userInvite.updateMany({
-        where: {
-          organizationId: actor.organizationId,
-          email,
-          acceptedAt: null,
-          revokedAt: null
-        },
-        data: { revokedAt: new Date() }
-      });
-
-      return tx.userInvite.create({
-        data: {
-          organizationId: actor.organizationId,
-          email,
-          role: payload.role,
-          invitedById: actor.id,
-          tokenHash,
-          expiresAt
-        },
-        include: {
-          invitedBy: {
-            select: {
-              firstName: true,
-              lastName: true,
-              email: true
-            }
-          }
-        }
-      });
-    });
-
-    this.logger.log(
-      JSON.stringify({
-        event: 'user.invite.created',
-        inviteId: invite.id,
-        organizationId: actor.organizationId,
-        email,
-        role: invite.role,
-        expiresAt: invite.expiresAt.toISOString()
-      })
-    );
-
-    return this.toInviteSummary(invite, token);
-  }
-
-  async forcePasswordReset(
-    actor: AuthenticatedUser,
-    targetUserId: string,
-    payload: ForcePasswordResetDto
-  ): Promise<ForcePasswordResetResult> {
-    if (actor.role !== UserRole.ADMIN) {
-      throw new ForbiddenException('Only administrators can force password resets');
-    }
-
-    const target = await this.prisma.user.findFirst({
-      where: { id: targetUserId, organizationId: actor.organizationId },
-      select: {
-        id: true,
-        email: true
-      }
-    });
-
-    if (!target) {
-      throw new NotFoundException('User not found');
-    }
-
-    const expiresAt = this.computeExpiryDate(
-      payload.expiresInHours,
-      this.getPasswordResetExpiryHours()
-    );
-    const { token, hash } = this.generateToken();
-    const issuedAt = new Date();
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.userPasswordResetToken.updateMany({
-        where: {
-          userId: targetUserId,
-          consumedAt: null,
-          expiresAt: { gt: issuedAt }
-        },
-        data: { consumedAt: issuedAt }
-      });
-
-      await tx.userPasswordResetToken.create({
-        data: {
-          userId: targetUserId,
-          tokenHash: hash,
-          expiresAt
-        }
-      });
-
-      await tx.user.update({
-        where: { id: targetUserId },
-        data: {
-          mustResetPassword: true,
-          refreshTokenHash: null,
-          refreshTokenId: null,
-          refreshTokenIssuedAt: null,
-          refreshTokenInvalidatedAt: issuedAt
-        }
-      });
-
-      await tx.userProfileAudit.create({
-        data: {
-          userId: targetUserId,
-          actorId: actor.id,
-          changes: {
-            passwordReset: {
-              previous: 'active',
-              current: 'forced',
-              expiresAt: expiresAt.toISOString()
-            }
-          } as Prisma.InputJsonValue
-        }
-      });
-    });
-
-    this.logger.warn(
-      JSON.stringify({
-        event: 'user.password.force_reset',
-        userId: targetUserId,
-        actorId: actor.id,
-        expiresAt: expiresAt.toISOString()
-      })
-    );
-
-    return {
-      userId: targetUserId,
-      token,
-      expiresAt: expiresAt.toISOString()
-    };
-  }
-
-  async bulkUpdateRoles(
-    actor: AuthenticatedUser,
-    payload: BulkUpdateRolesDto
-  ): Promise<UserProfile[]> {
-    if (actor.role !== UserRole.ADMIN) {
-      throw new ForbiddenException('Only administrators can update roles');
-    }
-
-    const uniqueIds = Array.from(new Set(payload.userIds)).filter((id) => id !== actor.id);
-
-    if (uniqueIds.length === 0) {
-      return [];
-    }
-
-    const allowed = await this.prisma.user.findMany({
-      where: {
-        id: { in: uniqueIds },
-        organizationId: actor.organizationId
-      },
-      select: { id: true }
-    });
-
-    if (allowed.length === 0) {
-      return [];
-    }
-
-    const results: UserProfile[] = [];
-
-    for (const entry of allowed) {
-      const updated = await this.updateUserRole(actor, entry.id, { role: payload.role });
-      results.push(updated);
-    }
-
-    return results;
-  }
-
-  async exportUsersCsv(actor: AuthenticatedUser): Promise<{ filename: string; content: string }> {
-    const profiles = await this.listUsers(actor);
-    const escapeCsv = (value: string) => `"${value.replace(/"/g, '""')}"`;
-
-    const header = [
-      'Email',
-      'First Name',
-      'Last Name',
-      'Role',
-      'Job Title',
-      'Phone Number',
-      'Must Reset Password',
-      'Last Login',
-      'Created At'
-    ];
-
-    const rows = profiles.map((user) =>
-      [
-        user.email,
-        user.firstName ?? '',
-        user.lastName ?? '',
-        user.role,
-        user.jobTitle ?? '',
-        user.phoneNumber ?? '',
-        user.mustResetPassword ? 'true' : 'false',
-        user.lastLoginAt ?? '',
-        user.createdAt
-      ]
-        .map((value) => escapeCsv(String(value ?? '')))
-        .join(',')
-    );
-
-    const csvContent = [header.join(','), ...rows].join('\n');
-    const dateStamp = new Date().toISOString().split('T')[0];
-    const filename = `users-${actor.organizationId}-${dateStamp}.csv`;
-
-    return { filename, content: csvContent };
   }
 
   async getProfile(userId: string): Promise<UserProfile> {
@@ -1010,18 +761,6 @@ export class UserService {
     if (actor.role !== UserRole.ADMIN) {
       throw new ForbiddenException('Only administrators can perform this action');
     }
-  }
-
-  private generateOpaqueToken(): { token: string; hash: string } {
-    const token = randomBytes(32).toString('hex');
-    return {
-      token,
-      hash: this.hashOpaqueToken(token)
-    };
-  }
-
-  private hashOpaqueToken(token: string): string {
-    return createHash('sha256').update(token).digest('hex');
   }
 
   private escapeCsv(value: string): string {

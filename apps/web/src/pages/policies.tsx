@@ -827,6 +827,13 @@ const PoliciesPage = () => {
                   </Box>
                   <Stack spacing={3} minW="220px" align="flex-end">
                     <ButtonGroup size="sm" variant="outline">
+                      <Button
+                        leftIcon={<Icon as={FiEdit} />}
+                        onClick={handleOpenEditPolicy}
+                        isDisabled={!actorId}
+                      >
+                        Edit policy
+                      </Button>
                       <Button leftIcon={<Icon as={FiFilePlus} />} onClick={onOpenUpload} isDisabled={!actorId}>
                         Upload version
                       </Button>
@@ -846,11 +853,64 @@ const PoliciesPage = () => {
                         Submit draft
                       </Button>
                     </ButtonGroup>
-                    <Text fontSize="sm" color="gray.500">
-                      Review cadence: {policyDetail.reviewCadenceDays ? `${policyDetail.reviewCadenceDays} days` : '—'}
-                    </Text>
                   </Stack>
                 </Flex>
+
+                <Flex gap={8} flexWrap="wrap" mt={2}>
+                  <Box>
+                    <Text fontSize="xs" textTransform="uppercase" color="gray.500" fontWeight="semibold">
+                      Review cadence
+                    </Text>
+                    <Text fontSize="sm">
+                      {policyDetail.reviewCadenceDays ? `${policyDetail.reviewCadenceDays} days` : 'Not configured'}
+                    </Text>
+                  </Box>
+                  <Box>
+                    <Text fontSize="xs" textTransform="uppercase" color="gray.500" fontWeight="semibold">
+                      Retention
+                    </Text>
+                    <Stack spacing={1} fontSize="sm" mt={1}>
+                      <Text>
+                        {policyDetail.retention.periodDays
+                          ? `${policyDetail.retention.periodDays} days`
+                          : 'No retention policy'}
+                      </Text>
+                      {policyDetail.retention.reason && (
+                        <Text color="gray.500">{policyDetail.retention.reason}</Text>
+                      )}
+                      {policyDetail.retention.expiresAt && (
+                        <Text color="gray.500">
+                          Expires {formatDate(policyDetail.retention.expiresAt)}
+                        </Text>
+                      )}
+                    </Stack>
+                  </Box>
+                </Flex>
+
+                {policyDetail.frameworks.length > 0 && (
+                  <Box mt={4}>
+                    <Text fontSize="xs" textTransform="uppercase" color="gray.500" fontWeight="semibold">
+                      Current framework coverage
+                    </Text>
+                    <Stack spacing={2} mt={2}>
+                      {policyDetail.frameworks.map((framework) => (
+                        <Box key={framework.frameworkId}>
+                          <Text fontSize="sm" fontWeight="medium">
+                            {framework.frameworkName}
+                          </Text>
+                          <Stack spacing={0.5} fontSize="xs" color="gray.500" mt={0.5}>
+                            {framework.controlFamilies.length > 0 && (
+                              <Text>Families: {framework.controlFamilies.join(', ')}</Text>
+                            )}
+                            {framework.controlIds.length > 0 && (
+                              <Text>Controls: {framework.controlIds.join(', ')}</Text>
+                            )}
+                          </Stack>
+                        </Box>
+                      ))}
+                    </Stack>
+                  </Box>
+                )}
 
                 <Divider my={4} />
 
@@ -904,6 +964,20 @@ const PoliciesPage = () => {
                               </Text>
                             )}
                             {renderTimeline(version)}
+                            {version.frameworks.length > 0 && (
+                              <Stack spacing={1} fontSize="xs" mt={2}>
+                                <Text textTransform="uppercase" color="gray.500" fontWeight="semibold">
+                                  Frameworks
+                                </Text>
+                                <Stack spacing={0.5}>
+                                  {version.frameworks.map((framework) => (
+                                    <Text key={framework.frameworkId} color="gray.600">
+                                      {framework.frameworkName}
+                                    </Text>
+                                  ))}
+                                </Stack>
+                              </Stack>
+                            )}
                           </Stack>
                           <Stack spacing={3} minW={{ base: 'auto', md: '220px' }}>
                             <ButtonGroup size="sm" variant="outline">
@@ -1516,6 +1590,20 @@ const PoliciesPage = () => {
                           </HStack>
                         ))}
                       </Stack>
+                    </Box>
+                    <Box>
+                      <Text fontWeight="medium">Frameworks</Text>
+                      {version.frameworks.length > 0 ? (
+                        <Stack spacing={1} mt={1} fontSize="sm">
+                          {version.frameworks.map((framework) => (
+                            <Text key={framework.frameworkId} color="gray.600">
+                              {framework.frameworkName}
+                            </Text>
+                          ))}
+                        </Stack>
+                      ) : (
+                        <Text color="gray.500">No mappings</Text>
+                      )}
                     </Box>
                   </Stack>
                 </Box>

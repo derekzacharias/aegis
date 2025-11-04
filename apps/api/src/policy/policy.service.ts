@@ -222,57 +222,72 @@ export class PolicyService {
       organizationId: policy.organizationId
     });
 
+    const payload = dto as Partial<CreatePolicyDto>;
     const updateData: Prisma.PolicyDocumentUpdateInput = {};
+    let retentionChanged = false;
+    let nextRetentionPeriodDays = policy.retentionPeriodDays ?? null;
+    let nextRetentionReason = policy.retentionReason ?? null;
+    let nextRetentionExpiresAt = policy.retentionExpiresAt ?? null;
 
-    if (typeof dto.title !== 'undefined') {
-      const trimmed = dto.title.trim();
+    if (typeof payload.title !== 'undefined') {
+      const trimmed = payload.title?.trim() ?? '';
       if (!trimmed) {
         throw new BadRequestException('Title cannot be empty.');
       }
       updateData.title = trimmed;
     }
 
-    if (typeof dto.description !== 'undefined') {
-      updateData.description = dto.description?.trim() || null;
+    if (typeof payload.description !== 'undefined') {
+      updateData.description = payload.description?.trim() || null;
     }
 
-    if (typeof dto.category !== 'undefined') {
-      const trimmed = dto.category?.trim() || '';
+    if (typeof payload.category !== 'undefined') {
+      const trimmed = payload.category?.trim() || '';
       updateData.category = trimmed.length > 0 ? trimmed : null;
     }
 
-    if (typeof dto.tags !== 'undefined') {
-      updateData.tags =
-        dto.tags
-          ?.map((tag) => tag.trim())
-          .filter((tag) => tag.length > 0) ?? [];
+    if (Array.isArray(payload.tags)) {
+      updateData.tags = payload.tags
+        .map((tag) => tag.trim())
+        .filter((tag) => tag.length > 0);
     }
 
-    if (typeof dto.reviewCadenceDays !== 'undefined') {
-      updateData.reviewCadenceDays = dto.reviewCadenceDays ?? null;
+    if (typeof payload.reviewCadenceDays !== 'undefined') {
+      updateData.reviewCadenceDays = payload.reviewCadenceDays ?? null;
     }
 
-    if (typeof dto.ownerId === 'string' && dto.ownerId.length > 0 && dto.ownerId !== policy.ownerId) {
-      updateData.ownerId = await this.resolveOwnerId(actor, dto.ownerId);
+    if (
+      typeof payload.ownerId === 'string' &&
+      payload.ownerId.length > 0 &&
+      payload.ownerId !== policy.ownerId
+    ) {
+      const newOwnerId = await this.resolveOwnerId(actor, payload.ownerId);
+      updateData.owner = {
+        connect: { id: newOwnerId }
+      };
     }
 
-    let retentionChanged = false;
-
-    if (typeof dto.retentionPeriodDays !== 'undefined') {
-      updateData.retentionPeriodDays = dto.retentionPeriodDays ?? null;
+    if (typeof payload.retentionPeriodDays !== 'undefined') {
+      const value = payload.retentionPeriodDays ?? null;
+      updateData.retentionPeriodDays = value;
+      nextRetentionPeriodDays = value;
       retentionChanged = true;
     }
 
-    if (typeof dto.retentionReason !== 'undefined') {
-      const trimmedReason = dto.retentionReason?.trim() || '';
-      updateData.retentionReason = trimmedReason.length > 0 ? trimmedReason : null;
+    if (typeof payload.retentionReason !== 'undefined') {
+      const trimmedReason = payload.retentionReason?.trim() || '';
+      const reasonValue = trimmedReason.length > 0 ? trimmedReason : null;
+      updateData.retentionReason = reasonValue;
+      nextRetentionReason = reasonValue;
       retentionChanged = true;
     }
 
-    if (typeof dto.retentionExpiresAt !== 'undefined') {
-      updateData.retentionExpiresAt = dto.retentionExpiresAt
-        ? new Date(dto.retentionExpiresAt)
+    if (typeof payload.retentionExpiresAt !== 'undefined') {
+      const expiresValue = payload.retentionExpiresAt
+        ? new Date(payload.retentionExpiresAt)
         : null;
+      updateData.retentionExpiresAt = expiresValue;
+      nextRetentionExpiresAt = expiresValue;
       retentionChanged = true;
     }
 
@@ -280,33 +295,25 @@ export class PolicyService {
       return this.toPolicyDetail(policy);
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.policyDocument.update({
-        where: { id: policyId },
-        data: updateData,
-        select: {
-          id: true,
-          retentionPeriodDays: true,
-          retentionReason: true,
-          retentionExpiresAt: true
+    await this.prisma.policyDocument.update({
+      where: { id: policyId },
+      data: updateData
+    });
+
+    if (retentionChanged) {
+      await this.recordAudit(this.prisma, {
+        policyId,
+        actorId: actor.id,
+        action: PolicyAuditAction.RETENTION_UPDATED,
+        metadata: {
+          retentionPeriodDays: nextRetentionPeriodDays,
+          retentionReason: nextRetentionReason,
+          retentionExpiresAt: nextRetentionExpiresAt
+            ? nextRetentionExpiresAt.toISOString()
+            : null
         }
       });
-
-      if (retentionChanged) {
-        await this.recordAudit(tx, {
-          policyId,
-          actorId: actor.id,
-          action: PolicyAuditAction.RETENTION_UPDATED,
-          metadata: {
-            retentionPeriodDays: updated.retentionPeriodDays,
-            retentionReason: updated.retentionReason,
-            retentionExpiresAt: updated.retentionExpiresAt
-              ? updated.retentionExpiresAt.toISOString()
-              : null
-          }
-        });
-      }
-    });
+    }
 
     const refreshed = await this.findPolicyOrThrow(policyId, actor.organizationId);
     return this.toPolicyDetail(refreshed);
@@ -402,8 +409,9 @@ export class PolicyService {
     });
 
     const nextVersionNumber = (latestVersion?.versionNumber ?? 0) + 1;
+    const organizationSlug = policy.organization?.slug ?? actor.organizationId;
     const storageResult = await this.storage.persist(
-      policy.organization.slug,
+      organizationSlug,
       policy.id,
       nextVersionNumber,
       file
@@ -983,11 +991,15 @@ export class PolicyService {
   }
 
   private toFrameworkMappings(
-    mappings: PolicyVersionFrameworkRow[]
+    mappings?: PolicyVersionFrameworkRow[] | null
   ): PolicyFrameworkMapping[] {
+    if (!mappings || mappings.length === 0) {
+      return [];
+    }
+
     return mappings.map((mapping) => ({
       frameworkId: mapping.frameworkId,
-      frameworkName: mapping.framework.name,
+      frameworkName: mapping.framework?.name ?? 'Framework',
       controlFamilies: [...(mapping.controlFamilies ?? [])],
       controlIds: [...(mapping.controlIds ?? [])]
     }));
@@ -1155,7 +1167,10 @@ export class PolicyService {
         actorId: params.actorId ?? null,
         action: params.action,
         message: params.message ?? null,
-        metadata: params.metadata ?? null
+        metadata:
+          params.metadata === undefined || params.metadata === null
+            ? Prisma.JsonNull
+            : params.metadata
       }
     });
   }
