@@ -8,7 +8,19 @@ export interface EvidenceNotificationPayload {
   status: 'quarantined' | 'released';
   reason: string;
   findings?: Record<string, unknown>;
-  requestedBy?: string;
+  requestedBy?: EvidenceNotificationContact;
+}
+
+export interface EvidenceNotificationContact {
+  id: string | null;
+  email: string;
+  name: string | null;
+  jobTitle: string | null;
+  phoneNumber: string | null;
+  timezone: string | null;
+  lastUpdated: string | null;
+  isStale: boolean;
+  missingFields: string[];
 }
 
 @Injectable()

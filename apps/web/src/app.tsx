@@ -20,6 +20,7 @@ import EvidencePage from './pages/evidence';
 import ReportsPage from './pages/reports';
 import SettingsPage from './pages/settings';
 import PoliciesPage from './pages/policies';
+import DocumentationPage from './pages/documentation';
 import LoginPage from './pages/login';
 import AppSidebar from './components/app-sidebar';
 import AppHeader from './components/app-header';
@@ -99,6 +100,7 @@ const App = () => {
           <Route path="/evidence" element={<EvidencePage />} />
           <Route path="/policies" element={<PoliciesPage />} />
           <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/documentation" element={<DocumentationPage />} />
           <Route path="/settings/*" element={<SettingsPage />} />
         </Route>
       </Route>
