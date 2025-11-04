@@ -199,6 +199,32 @@ async function ensureNpmAvailable() {
   }
 }
 
+async function ensureGithubCliConfigured() {
+  if (!commandExists('gh')) {
+    log('GitHub CLI (gh) is required but was not found. Install it from https://cli.github.com/ and rerun this script.');
+    process.exit(1);
+  }
+
+  const ghVersion = readCommandOutput('gh', ['--version']);
+  if (ghVersion) {
+    log(`Detected GitHub CLI: ${ghVersion.split('\n')[0]}`);
+  }
+
+  const status = spawnSync('gh', ['auth', 'status'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  if (status.status !== 0) {
+    log('GitHub CLI is not authenticated. Run `gh auth login` to configure access and then rerun this script.');
+    const details = status.stderr?.trim() || status.stdout?.trim();
+    if (details) {
+      appendOutputToRunLog(details);
+    }
+    process.exit(1);
+  }
+}
+
 async function installDockerAndCompose() {
   log('Docker CLI not found. Attempting to install Docker and Docker Compose...');
 
@@ -602,6 +628,7 @@ async function main() {
 
   try {
     await ensureNpmAvailable();
+    await ensureGithubCliConfigured();
     await ensureDockerAvailable();
     await ensureDependencies();
     await ensurePrismaClient();
