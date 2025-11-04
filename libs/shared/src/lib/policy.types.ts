@@ -118,6 +118,14 @@ export type CreatePolicyVersionInput = {
   frameworks?: PolicyFrameworkMappingInput[];
 };
 
+export type UpdatePolicyVersionInput = {
+  label?: string;
+  notes?: string;
+  effectiveAt?: string | null;
+  supersedesVersionId?: string | null;
+  frameworks?: PolicyFrameworkMappingInput[];
+};
+
 export type SubmitPolicyVersionInput = {
   approverIds: string[];
   message?: string;

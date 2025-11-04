@@ -129,7 +129,7 @@ export class EvidenceProcessor {
         status: EvidenceScanStatus.RUNNING,
         startedAt: new Date(),
         failureReason: null,
-        findings: null
+        findings: Prisma.JsonNull
       }
     });
 
@@ -270,7 +270,7 @@ export class EvidenceProcessor {
         });
 
         this.metrics.incrementCounter(`${METRIC_PREFIX}.auto_released`, 1, {
-          strategy: this.autoReleaseStrategy,
+          strategy: releasePlan.strategy,
           target: releasePlan.toStatus
         });
       }
@@ -313,7 +313,14 @@ export class EvidenceProcessor {
 
   private async determineAutoRelease(
     record: EvidenceSummary
-  ): Promise<{ toStatus: EvidenceStatus; nextAction: string; note: string } | null> {
+  ): Promise<
+    {
+      toStatus: EvidenceStatus;
+      nextAction: string;
+      note: string;
+      strategy: AntivirusAutoReleaseStrategy;
+    } | null
+  > {
     const orgSettings = await this.prisma.organizationSettings.findUnique({
       where: { organizationId: record.organizationId },
       select: { antivirusAutoReleaseStrategy: true }
@@ -331,7 +338,8 @@ export class EvidenceProcessor {
       return {
         toStatus: EvidenceStatus.PENDING,
         nextAction: 'Auto-released after clean scan – awaiting analyst review',
-        note: 'Evidence auto-released to pending after clean antivirus scan'
+        note: 'Evidence auto-released to pending after clean antivirus scan',
+        strategy
       };
     }
 
@@ -355,13 +363,17 @@ export class EvidenceProcessor {
     };
 
     if (!recentQuarantine || !recentQuarantine.fromStatus || recentQuarantine.fromStatus === EvidenceStatus.QUARANTINED) {
-      return fallback;
+      return {
+        ...fallback,
+        strategy
+      };
     }
 
     return {
       toStatus: recentQuarantine.fromStatus,
       nextAction: 'Auto-released to previous status after clean antivirus scan',
-      note: `Evidence auto-released to ${recentQuarantine.fromStatus.toLowerCase()} after clean antivirus scan`
+      note: `Evidence auto-released to ${recentQuarantine.fromStatus.toLowerCase()} after clean antivirus scan`,
+      strategy
     };
   }
 

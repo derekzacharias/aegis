@@ -1,4 +1,10 @@
 import {
+  AlertDialog,
+  AlertDialogBody,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogOverlay,
   Badge,
   Box,
   Button,
@@ -42,9 +48,10 @@ import {
   FiFlag,
   FiPlus,
   FiShield,
+  FiTrash2,
   FiUsers
 } from 'react-icons/fi';
-import { ChangeEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import dayjs from 'dayjs';
 import {
   PolicySummary,
@@ -58,7 +65,9 @@ import {
   usePolicySummaries,
   useSubmitPolicyVersion,
   useUpdatePolicy,
-  useUploadPolicyVersion
+  useUpdatePolicyVersion,
+  useUploadPolicyVersion,
+  useDeletePolicyVersion
 } from '../hooks/use-policies';
 import { useFrameworks } from '../hooks/use-frameworks';
 import { usePolicyActor } from '../policies/policy-actor-context';
@@ -101,6 +110,12 @@ type NewVersionFormState = {
   supersedesVersionId: string;
   file: File | null;
   frameworkMappings: FrameworkMappingFormState[];
+};
+
+type EditVersionFormState = {
+  label: string;
+  notes: string;
+  effectiveDate: string;
 };
 
 type SubmitVersionFormState = {
