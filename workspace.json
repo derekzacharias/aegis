@@ -3,6 +3,7 @@
   "projects": {
     "web": "apps/web",
     "api": "apps/api",
-    "worker": "apps/worker"
+    "worker": "apps/worker",
+    "web-e2e": "apps/web-e2e"
   }
 }

@@ -19,6 +19,9 @@
         "{workspaceRoot}/tools/testing/**/*",
         "{workspaceRoot}/types/**/*.d.ts"
       ]
+    },
+    "e2e": {
+      "cache": false
     }
   },
   "defaultProject": "web",

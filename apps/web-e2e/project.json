@@ -1,0 +1,16 @@
+{
+  "name": "web-e2e",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/web-e2e/tests",
+  "projectType": "application",
+  "targets": {
+    "e2e": {
+      "executor": "@nx/workspace:run-commands",
+      "options": {
+        "command": "npx playwright test",
+        "cwd": "."
+      }
+    }
+  },
+  "tags": ["scope:web", "type:e2e"]
+}

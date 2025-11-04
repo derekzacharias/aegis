@@ -31,6 +31,12 @@ CI pipelines invoking `nx run-many --target test --all` inherit these environmen
 - Inspect the DOM tree via [Testing Library debugging helpers](https://testing-library.com/docs/dom-testing-library/api-debugging/); `screen.debug()` now works out of the box because jsdom is registered before project-specific setup runs.
 - If a browser API is still missing, extend `tools/testing/setup-jsdom.ts` with the required shim and document the addition.
 
-## Follow-up / Playwright coverage
+## Playwright smoke coverage
 
-- Evaluate Playwright smoke tests once we add critical user flows (auth, assessments, evidence upload). The current jest + jsdom layer unblocks component and hook testing; end-to-end coverage should track against the roadmap item for web regression automation.
+We now ship a light Playwright harness under `apps/web-e2e` that exercises the sign-in screen end to end. The config starts the Vite dev server automatically and targets Chromium for quick feedback.
+
+- `npm run test:e2e` (or `nx run web-e2e:e2e`) runs the Playwright suite. Install browsers the first time with `npx playwright install`.
+- Customize base URL by exporting `PLAYWRIGHT_BASE_URL` before running the tests. The web server starts on port `4300` by default.
+- Test files live in `apps/web-e2e/tests`. Add additional specs alongside `smoke.spec.ts` to cover other flows.
+
+> Heads up: the CI environment still requires pseudo-IPC socket support. Once build agents permit that, wire `npm run test:e2e` into the pipelines so the cache includes Playwright traces.

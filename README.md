@@ -74,6 +74,7 @@ If you prefer to operate the services manually, follow the steps below.
 - `npm run test` – run every Jest target (Node + jsdom).
 - `npm run test:node` – back-end and shared-library suites only.
 - `npm run test:dom` – browser-oriented suites (React, DOM utilities).
+- `npm run test:e2e` – Playwright smoke suite (launches the web dev server automatically).
 - `npm run affected:test` – Nx-aware test subset for CI and pre-commit workflows.
 - See `docs/testing.md` for deeper guidance on environments, polyfills, and debugging tips.
 
