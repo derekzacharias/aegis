@@ -81,6 +81,11 @@ export default () => ({
       process.env['EVIDENCE_SCAN_QUARANTINE_ON_ERROR'],
       true
     ),
+    autoReleaseStrategy: (
+      process.env['EVIDENCE_SCAN_AUTO_RELEASE_STRATEGY'] ?? 'pending'
+    )
+      .toLowerCase()
+      .trim(),
     maxRetries: parseNumber(process.env['EVIDENCE_SCAN_MAX_RETRIES'], 3),
     retryDelayMs: parseNumber(process.env['EVIDENCE_SCAN_RETRY_DELAY_MS'], 5_000),
     clamav: {

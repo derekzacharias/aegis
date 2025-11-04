@@ -9,3 +9,4 @@ export * from './lib/reporting.types';
 export * from './lib/report.store';
 export * from './lib/scheduler.types';
 export * from './lib/tenant.types';
+export * from './lib/security.types';

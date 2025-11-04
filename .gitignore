@@ -21,6 +21,7 @@ gitignore
 !/tools/**/*
 !/nx.json
 !/package.json
+!/package-lock.json
 !/tsconfig.base.json
 !/workspace.json
 !/jest.preset.js

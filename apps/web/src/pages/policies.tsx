@@ -55,8 +55,10 @@ import {
   usePolicyDetail,
   usePolicySummaries,
   useSubmitPolicyVersion,
+  useUpdatePolicy,
   useUploadPolicyVersion
 } from '../hooks/use-policies';
+import { useFrameworks } from '../hooks/use-frameworks';
 import { usePolicyActor } from '../policies/policy-actor-context';
 
 const formatDate = (value?: string | null) =>
@@ -79,6 +81,15 @@ type NewPolicyFormState = {
   tags: string;
   reviewCadenceDays: string;
   ownerId: string;
+  retentionPeriodDays: string;
+  retentionReason: string;
+  retentionExpiresAt: string;
+};
+
+type FrameworkMappingFormState = {
+  frameworkId: string;
+  controlFamilies: string;
+  controlIds: string;
 };
 
 type NewVersionFormState = {
@@ -87,11 +98,24 @@ type NewVersionFormState = {
   effectiveDate: string;
   supersedesVersionId: string;
   file: File | null;
+  frameworkMappings: FrameworkMappingFormState[];
 };
 
 type SubmitVersionFormState = {
   approverIds: string[];
   message: string;
+};
+
+type EditPolicyFormState = {
+  title: string;
+  description: string;
+  category: string;
+  tags: string;
+  reviewCadenceDays: string;
+  ownerId: string;
+  retentionPeriodDays: string;
+  retentionReason: string;
+  retentionExpiresAt: string;
 };
 
 type DecisionFormState = {
@@ -106,6 +130,12 @@ const normalizeTags = (tags: string) =>
     .map((tag) => tag.trim())
     .filter(Boolean);
 
+const splitList = (value: string) =>
+  value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
 const toIsoDate = (value: string) =>
   value ? new Date(`${value}T00:00:00Z`).toISOString() : undefined;
 
@@ -116,6 +146,7 @@ const PoliciesPage = () => {
   const borderColor = useColorModeValue('gray.200', 'gray.700');
   const { actor, setActor, participants, refreshParticipants } = usePolicyActor();
   const actorId = actor?.id;
+  const { data: frameworks = [] } = useFrameworks();
 
   const {
     isOpen: isCreateOpen,
@@ -154,7 +185,10 @@ const PoliciesPage = () => {
     category: '',
     tags: '',
     reviewCadenceDays: '365',
-    ownerId: ''
+    ownerId: '',
+    retentionPeriodDays: '',
+    retentionReason: '',
+    retentionExpiresAt: ''
   });
 
   const [newVersionForm, setNewVersionForm] = useState<NewVersionFormState>({
@@ -162,7 +196,8 @@ const PoliciesPage = () => {
     notes: '',
     effectiveDate: '',
     supersedesVersionId: '',
-    file: null
+    file: null,
+    frameworkMappings: []
   });
 
   const [submitVersionForm, setSubmitVersionForm] = useState<SubmitVersionFormState>({
@@ -175,6 +210,8 @@ const PoliciesPage = () => {
     comment: '',
     effectiveDate: ''
   });
+
+  const [editPolicyForm, setEditPolicyForm] = useState<EditPolicyFormState | null>(null);
 
   const {
     data: policies,
@@ -210,6 +247,7 @@ const PoliciesPage = () => {
   const uploadVersion = useUploadPolicyVersion(actorId);
   const submitVersion = useSubmitPolicyVersion(actorId);
   const policyDecision = usePolicyDecision(actorId);
+  const updatePolicy = useUpdatePolicy(actorId);
 
   const combinedActors = useMemo(() => {
     if (!participants) {
@@ -243,7 +281,10 @@ const PoliciesPage = () => {
       category: '',
       tags: '',
       reviewCadenceDays: '365',
-      ownerId: participants?.authors[0]?.id ?? ''
+      ownerId: participants?.authors[0]?.id ?? '',
+      retentionPeriodDays: '',
+      retentionReason: '',
+      retentionExpiresAt: ''
     });
   };
 
@@ -422,6 +463,47 @@ const PoliciesPage = () => {
         status: 'error'
       });
     }
+  };
+
+  const toggleFrameworkSelection = (frameworkId: string, isSelected: boolean) => {
+    setNewVersionForm((prev) => {
+      if (isSelected) {
+        if (prev.frameworkMappings.some((mapping) => mapping.frameworkId === frameworkId)) {
+          return prev;
+        }
+        return {
+          ...prev,
+          frameworkMappings: [
+            ...prev.frameworkMappings,
+            {
+              frameworkId,
+              controlFamilies: '',
+              controlIds: ''
+            }
+          ]
+        };
+      }
+
+      return {
+        ...prev,
+        frameworkMappings: prev.frameworkMappings.filter(
+          (mapping) => mapping.frameworkId !== frameworkId
+        )
+      };
+    });
+  };
+
+  const updateFrameworkMappingField = (
+    frameworkId: string,
+    field: 'controlFamilies' | 'controlIds',
+    value: string
+  ) => {
+    setNewVersionForm((prev) => ({
+      ...prev,
+      frameworkMappings: prev.frameworkMappings.map((mapping) =>
+        mapping.frameworkId === frameworkId ? { ...mapping, [field]: value } : mapping
+      )
+    }));
   };
 
   const handleOpenEditPolicy = () => {

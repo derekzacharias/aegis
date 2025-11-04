@@ -6,6 +6,7 @@ import {
   JobRecord,
   jobQueue
 } from '@compliance/shared';
+import type { AntivirusAutoReleaseStrategy } from '@compliance/shared';
 import {
   EvidenceIngestionStatus,
   EvidenceScanStatus,
@@ -45,6 +46,7 @@ export class EvidenceProcessor {
   private readonly engineName: string;
   private readonly enabled: boolean;
   private readonly quarantineOnError: boolean;
+  private readonly autoReleaseStrategy: AntivirusAutoReleaseStrategy;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -64,6 +66,9 @@ export class EvidenceProcessor {
     this.engineName = this.config.get<string>('antivirus.engineName') ?? 'ClamAV';
     this.enabled = this.config.get<boolean>('antivirus.enabled') ?? true;
     this.quarantineOnError = this.config.get<boolean>('antivirus.quarantineOnError') ?? true;
+    this.autoReleaseStrategy = this.resolveAutoReleaseStrategy(
+      this.config.get<string>('antivirus.autoReleaseStrategy')
+    );
   }
 
   private async handle(
@@ -238,24 +243,46 @@ export class EvidenceProcessor {
       lastScanBytes: outcome.bytesScanned
     };
 
+    let releasePlan: Awaited<ReturnType<typeof this.determineAutoRelease>> = null;
+
     if (record.status === EvidenceStatus.QUARANTINED) {
-      updateData.status = EvidenceStatus.PENDING;
-      updateData.nextAction = 'Awaiting analyst review after clean scan';
-      await this.prisma.evidenceStatusHistory.create({
-        data: {
+      releasePlan = await this.determineAutoRelease(record);
+      if (releasePlan) {
+        updateData.status = releasePlan.toStatus;
+        updateData.nextAction = releasePlan.nextAction;
+
+        await this.prisma.evidenceStatusHistory.create({
+          data: {
           evidenceId: record.id,
           fromStatus: EvidenceStatus.QUARANTINED,
-          toStatus: EvidenceStatus.PENDING,
-          note: 'Evidence released after clean antivirus scan',
+          toStatus: releasePlan.toStatus,
+          note: releasePlan.note,
           changedById: null
-        }
-      });
+          }
+        });
+
+        this.metrics.incrementCounter(`${METRIC_PREFIX}.auto_released`, 1, {
+          strategy: this.autoReleaseStrategy,
+          target: releasePlan.toStatus
+        });
+      }
     }
 
     await this.prisma.evidenceItem.update({
       where: { id: record.id },
       data: updateData
     });
+
+    if (releasePlan) {
+      await this.notifications.notifyEvidence({
+        evidenceId: record.id,
+        organizationId: record.organizationId,
+        scanId,
+        status: 'released',
+        reason: releasePlan.note,
+        findings: outcome.findings ?? undefined
+      });
+    }
 
     this.logger.log(
       JSON.stringify({
@@ -265,6 +292,68 @@ export class EvidenceProcessor {
         notes: outcome.notes
       })
     );
+  }
+
+  private resolveAutoReleaseStrategy(value: string | undefined): AntivirusAutoReleaseStrategy {
+    const normalized = (value ?? 'pending').toLowerCase().trim();
+    if (normalized === 'manual' || normalized === 'previous' || normalized === 'pending') {
+      return normalized;
+    }
+    return 'pending';
+  }
+
+  private async determineAutoRelease(
+    record: EvidenceSummary
+  ): Promise<{ toStatus: EvidenceStatus; nextAction: string; note: string } | null> {
+    const orgSettings = await this.prisma.organizationSettings.findUnique({
+      where: { organizationId: record.organizationId },
+      select: { antivirusAutoReleaseStrategy: true }
+    });
+
+    const strategy = orgSettings?.antivirusAutoReleaseStrategy
+      ? this.resolveAutoReleaseStrategy(orgSettings.antivirusAutoReleaseStrategy)
+      : this.autoReleaseStrategy;
+
+    if (strategy === 'manual') {
+      return null;
+    }
+
+    if (strategy === 'pending') {
+      return {
+        toStatus: EvidenceStatus.PENDING,
+        nextAction: 'Auto-released after clean scan – awaiting analyst review',
+        note: 'Evidence auto-released to pending after clean antivirus scan'
+      };
+    }
+
+    const recentQuarantine = await this.prisma.evidenceStatusHistory.findFirst({
+      where: {
+        evidenceId: record.id,
+        toStatus: EvidenceStatus.QUARANTINED
+      },
+      orderBy: {
+        changedAt: 'desc'
+      },
+      select: {
+        fromStatus: true
+      }
+    });
+
+    const fallback = {
+      toStatus: EvidenceStatus.PENDING,
+      nextAction: 'Auto-released after clean scan – awaiting analyst review',
+      note: 'Evidence auto-released to pending after clean antivirus scan (previous status unavailable)'
+    };
+
+    if (!recentQuarantine || !recentQuarantine.fromStatus || recentQuarantine.fromStatus === EvidenceStatus.QUARANTINED) {
+      return fallback;
+    }
+
+    return {
+      toStatus: recentQuarantine.fromStatus,
+      nextAction: 'Auto-released to previous status after clean antivirus scan',
+      note: `Evidence auto-released to ${recentQuarantine.fromStatus.toLowerCase()} after clean antivirus scan`
+    };
   }
 
   private async handleInfected(

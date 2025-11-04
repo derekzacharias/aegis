@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+import { EvidenceScanStatus, EvidenceStatus } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
 
 export interface DashboardOverview {
   stats: Array<{
@@ -28,11 +30,91 @@ export interface DashboardOverview {
     owner: string;
     status: string;
   }>;
+  antivirus: {
+    scansLast24h: number;
+    infectedLast7d: number;
+    failedLast7d: number;
+    quarantinedEvidence: number;
+    averageScanDurationMs: number | null;
+    lastCompletedScanAt: string | null;
+    engine: string | null;
+  };
 }
 
 @Injectable()
 export class DashboardService {
+  constructor(private readonly prisma: PrismaService) {}
+
   async getOverview(): Promise<DashboardOverview> {
+    const now = new Date();
+    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const [
+      scansLast24h,
+      infectedLast7d,
+      failedLast7d,
+      quarantinedEvidence,
+      avgDuration,
+      latestScan
+    ] = await this.prisma.$transaction([
+      this.prisma.evidenceScan.count({
+        where: {
+          startedAt: {
+            gte: oneDayAgo
+          }
+        }
+      }),
+      this.prisma.evidenceScan.count({
+        where: {
+          status: EvidenceScanStatus.INFECTED,
+          completedAt: {
+            gte: sevenDaysAgo
+          }
+        }
+      }),
+      this.prisma.evidenceScan.count({
+        where: {
+          status: EvidenceScanStatus.FAILED,
+          updatedAt: {
+            gte: sevenDaysAgo
+          }
+        }
+      }),
+      this.prisma.evidenceItem.count({
+        where: {
+          status: EvidenceStatus.QUARANTINED
+        }
+      }),
+      this.prisma.evidenceScan.aggregate({
+        where: {
+          completedAt: {
+            gte: sevenDaysAgo
+          },
+          durationMs: {
+            not: null
+          }
+        },
+        _avg: {
+          durationMs: true
+        }
+      }),
+      this.prisma.evidenceScan.findFirst({
+        where: {
+          completedAt: {
+            not: null
+          }
+        },
+        orderBy: {
+          completedAt: 'desc'
+        },
+        select: {
+          completedAt: true,
+          engine: true
+        }
+      })
+    ]);
+
     return {
       stats: [
         {
@@ -103,7 +185,18 @@ export class DashboardService {
           owner: 'Maria Chen',
           status: 'Pending Review'
         }
-      ]
+      ],
+      antivirus: {
+        scansLast24h,
+        infectedLast7d,
+        failedLast7d,
+        quarantinedEvidence,
+        averageScanDurationMs: avgDuration._avg.durationMs
+          ? Math.round(avgDuration._avg.durationMs)
+          : null,
+        lastCompletedScanAt: latestScan?.completedAt?.toISOString() ?? null,
+        engine: latestScan?.engine ?? null
+      }
     };
   }
 }
