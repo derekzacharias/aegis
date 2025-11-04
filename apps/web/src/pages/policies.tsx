@@ -36,6 +36,7 @@ import {
 } from '@chakra-ui/react';
 import {
   FiDownload,
+  FiEdit,
   FiFilePlus,
   FiFlag,
   FiPlus,
@@ -167,6 +168,11 @@ const PoliciesPage = () => {
     isOpen: isDecisionOpen,
     onOpen: onOpenDecision,
     onClose: onCloseDecision
+  } = useDisclosure();
+  const {
+    isOpen: isEditOpen,
+    onOpen: onOpenEdit,
+    onClose: onCloseEdit
   } = useDisclosure();
   const {
     isOpen: isCompareOpen,

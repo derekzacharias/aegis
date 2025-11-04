@@ -278,6 +278,219 @@ const UsersSettings = () => {
     }
   };
 
+  const handleInviteSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (createInvite.isPending) {
+      return;
+    }
+
+    try {
+      const result = await createInvite.mutateAsync({
+        email: inviteForm.email.trim(),
+        role: inviteForm.role,
+        expiresInHours: inviteForm.expiresInHours
+      });
+
+      resetInviteForm();
+
+      if (result.token) {
+        setTokenDetails({
+          token: result.token,
+          title: 'Invite Token Generated',
+          subtitle: `Share this one-time token with ${result.email} to complete their account setup.`
+        });
+        tokenModal.onOpen();
+      }
+
+      toast({
+        title: 'Invite created',
+        description: `An invite token for ${result.email} has been generated.`,
+        status: 'success',
+        duration: 4000,
+        isClosable: true
+      });
+    } catch (err) {
+      toast({
+        title: 'Unable to create invite',
+        description: getErrorMessage(err),
+        status: 'error',
+        duration: 5000,
+        isClosable: true
+      });
+    }
+  };
+
+  const handleRevokeInvite = async (inviteId: string) => {
+    if (revokeInvite.isPending) {
+      return;
+    }
+
+    try {
+      await revokeInvite.mutateAsync(inviteId);
+      toast({
+        title: 'Invite revoked',
+        status: 'info',
+        duration: 3000,
+        isClosable: true
+      });
+    } catch (err) {
+      toast({
+        title: 'Unable to revoke invite',
+        description: getErrorMessage(err),
+        status: 'error',
+        duration: 5000,
+        isClosable: true
+      });
+    }
+  };
+
+  const handleForceReset = async (userId: string) => {
+    if (forcePasswordReset.isPending) {
+      return;
+    }
+
+    try {
+      const result = await forcePasswordReset.mutateAsync({ userId });
+      setTokenDetails({
+        token: result.token,
+        title: 'Forced password reset',
+        subtitle: 'Provide this token to the user so they can set a new password.'
+      });
+      tokenModal.onOpen();
+      toast({
+        title: 'Password reset required',
+        description: 'Existing sessions were revoked.',
+        status: 'info',
+        duration: 4000,
+        isClosable: true
+      });
+    } catch (err) {
+      toast({
+        title: 'Unable to trigger password reset',
+        description: getErrorMessage(err),
+        status: 'error',
+        duration: 5000,
+        isClosable: true
+      });
+    }
+  };
+
+  const handleSelectUser = (userId: string, checked: boolean) => {
+    setSelectedUserIds((prev) => {
+      if (checked) {
+        if (prev.includes(userId)) {
+          return prev;
+        }
+        return [...prev, userId];
+      }
+      return prev.filter((id) => id !== userId);
+    });
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedUserIds(users.map((item) => item.id));
+      return;
+    }
+    setSelectedUserIds([]);
+  };
+
+  const handleBulkRoleChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    setBulkRole(event.target.value as UserRole);
+  };
+
+  const handleBulkRoleUpdate = async () => {
+    if (!selectedUserIds.length || bulkUpdateRoles.isPending) {
+      return;
+    }
+
+    try {
+      await bulkUpdateRoles.mutateAsync({ userIds: selectedUserIds, role: bulkRole });
+      toast({
+        title: 'Roles updated',
+        description: `${selectedUserIds.length} user(s) now have the ${bulkRole.replace('_', ' ')} role.`,
+        status: 'success',
+        duration: 4000,
+        isClosable: true
+      });
+      setSelectedUserIds([]);
+    } catch (err) {
+      toast({
+        title: 'Unable to update roles',
+        description: getErrorMessage(err),
+        status: 'error',
+        duration: 5000,
+        isClosable: true
+      });
+    }
+  };
+
+  const handleExportCsv = async () => {
+    if (exportCsv.isPending) {
+      return;
+    }
+
+    try {
+      const data = await exportCsv.mutateAsync();
+      const blob = new Blob([data], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `users-${dayjs().format('YYYYMMDD-HHmmss')}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast({
+        title: 'Export started',
+        status: 'success',
+        duration: 3000,
+        isClosable: true
+      });
+    } catch (err) {
+      toast({
+        title: 'Unable to export users',
+        description: getErrorMessage(err),
+        status: 'error',
+        duration: 5000,
+        isClosable: true
+      });
+    }
+  };
+
+  const handleCopyToken = async (token: string) => {
+    try {
+      await navigator.clipboard.writeText(token);
+      toast({
+        title: 'Token copied',
+        status: 'success',
+        duration: 2000,
+        isClosable: true
+      });
+    } catch {
+      toast({
+        title: 'Unable to copy token',
+        status: 'error',
+        duration: 3000,
+        isClosable: true
+      });
+    }
+  };
+
+  const handleTokenModalClose = () => {
+    tokenModal.onClose();
+    setTokenDetails(null);
+  };
+
+  const allSelected = useMemo(
+    () => selectedUserIds.length > 0 && selectedUserIds.length === users.length,
+    [selectedUserIds, users.length]
+  );
+
+  const isBulkDisabled = selectedUserIds.length === 0 || bulkUpdateRoles.isPending;
+  const canInvite = inviteForm.email.trim().length > 0;
+
   if (!isAdmin) {
     return (
       <Card>
