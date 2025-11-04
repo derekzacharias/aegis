@@ -27,6 +27,7 @@ model Organization {
   policies               PolicyDocument[]
   evidenceUploadRequests EvidenceUploadRequest[]
   schedules              Schedule[]
+  userInvites            UserInvite[]
   settings               OrganizationSettings?
 }
 
@@ -41,6 +42,7 @@ model User {
   refreshTokenIssuedAt    DateTime?
   refreshTokenInvalidatedAt DateTime?
   passwordChangedAt       DateTime?
+  mustResetPassword       Boolean                 @default(false)
   lastLoginAt             DateTime?
   phoneNumber             String?
   jobTitle                String?
@@ -69,11 +71,43 @@ model User {
   ownedSchedules          Schedule[]              @relation("ScheduleOwner")
   profileAuditEntries     UserProfileAudit[]      @relation("UserProfileChanges")
   profileAuditActions     UserProfileAudit[]      @relation("UserProfileAuditActor")
+  sentInvites             UserInvite[]            @relation("InviteInviter")
+  passwordResetTokens     UserPasswordResetToken[]
   assessmentAuditEntries  AssessmentAuditLog[]    @relation("AssessmentAuditActor")
   createdFrameworks       Framework[]             @relation("FrameworkCreator")
   updatedFrameworks       Framework[]             @relation("FrameworkUpdater")
   createdControls         Control[]               @relation("ControlCreator")
   updatedControls         Control[]               @relation("ControlUpdater")
+}
+
+model UserInvite {
+  id              String      @id @default(cuid())
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  String
+  email           String
+  role            UserRole     @default(ANALYST)
+  invitedBy       User?        @relation("InviteInviter", fields: [invitedById], references: [id])
+  invitedById     String?
+  tokenHash       String
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([organizationId, email])
+}
+
+model UserPasswordResetToken {
+  id          String   @id @default(cuid())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  tokenHash   String
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([userId, expiresAt])
 }
 
 model Framework {

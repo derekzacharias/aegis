@@ -51,6 +51,8 @@ export default () => {
   const passwordComplexity = parsePasswordComplexity(process.env['AUTH_PASSWORD_COMPLEXITY']);
   const tokenIssuer = process.env['AUTH_TOKEN_ISSUER'] ?? 'aegis-api';
   const tokenAudience = process.env['AUTH_TOKEN_AUDIENCE'] ?? 'aegis-clients';
+  const inviteExpiryHours = parseNumber(process.env['USER_INVITE_TTL_HOURS'], 72);
+  const passwordResetExpiryHours = parseNumber(process.env['USER_PASSWORD_RESET_TTL_HOURS'], 24);
 
   const corsOrigins = (process.env['CORS_ORIGINS'] ?? 'http://localhost:4200')
     .split(',')
@@ -98,6 +100,10 @@ export default () => {
       passwordComplexity,
       tokenIssuer,
       tokenAudience
+    },
+    user: {
+      inviteExpiryHours,
+      passwordResetExpiryHours
     },
     cors: {
       origins: corsOrigins

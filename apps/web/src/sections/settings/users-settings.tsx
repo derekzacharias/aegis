@@ -1,34 +1,62 @@
 import {
+  Badge,
   Box,
   Button,
   Card,
   CardBody,
   CardHeader,
+  Checkbox,
+  Divider,
   FormControl,
   FormLabel,
   Heading,
+  HStack,
+  Icon,
+  IconButton,
   Input,
   InputGroup,
   InputRightElement,
+  Modal,
+  ModalBody,
+  ModalCloseButton,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+  ModalOverlay,
   Select,
   SimpleGrid,
   Spinner,
+  Stack,
   Table,
   Tbody,
   Td,
   Text,
   Th,
   Thead,
+  Tooltip,
   Tr,
   VStack,
+  useDisclosure,
   useToast
 } from '@chakra-ui/react';
 import { useEffect, useMemo, useState } from 'react';
 import dayjs from 'dayjs';
 import axios from 'axios';
 import { UserProfile, UserRole } from '@compliance/shared';
+import { FiCopy, FiDownload, FiLock, FiRefreshCcw, FiTrash2, FiUserPlus } from 'react-icons/fi';
 import useAuth from '../../hooks/use-auth';
-import { CreateUserInput, useCreateUser, useUsers } from '../../hooks/use-users';
+import {
+  CreateUserInput,
+  useBulkUpdateRoles,
+  useCreateInvite,
+  useCreateUser,
+  useExportUsersCsv,
+  useForcePasswordReset,
+  useRevokeInvite,
+  useUserInvites,
+  useUsers
+} from '../../hooks/use-users';
+import { formatPhoneNumber } from '../../utils/phone';
 
 const defaultForm: CreateUserInput = {
   email: '',
@@ -38,6 +66,12 @@ const defaultForm: CreateUserInput = {
   jobTitle: '',
   phoneNumber: '',
   role: 'ANALYST'
+};
+
+const defaultInviteForm = {
+  email: '',
+  role: 'ANALYST' as UserRole,
+  expiresInHours: 72
 };
 
 const roleOptions: Array<{ label: string; value: UserRole }> = [
@@ -52,6 +86,13 @@ const formatDate = (value: string | null | undefined) => {
     return '—';
   }
   return dayjs(value).format('MMM D, YYYY');
+};
+
+const formatDateTime = (value: string | null | undefined) => {
+  if (!value) {
+    return '—';
+  }
+  return dayjs(value).format('MMM D, YYYY h:mm A');
 };
 
 const getErrorMessage = (error: unknown): string => {
@@ -82,12 +123,30 @@ const UsersSettings = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
   const [form, setForm] = useState<CreateUserInput>(defaultForm);
+  const [inviteForm, setInviteForm] = useState(defaultInviteForm);
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [bulkRole, setBulkRole] = useState<UserRole>('ANALYST');
+  const tokenModal = useDisclosure();
+  const [tokenDetails, setTokenDetails] = useState<{
+    token: string;
+    title: string;
+    subtitle: string;
+  } | null>(null);
   const { data: users = [], isLoading, isFetching, error } = useUsers(isAdmin);
+  const { data: invites = [], isLoading: isInvitesLoading, isFetching: isInvitesFetching } =
+    useUserInvites(isAdmin);
   const createUser = useCreateUser();
+  const createInvite = useCreateInvite();
+  const revokeInvite = useRevokeInvite();
+  const forcePasswordReset = useForcePasswordReset();
+  const bulkUpdateRoles = useBulkUpdateRoles();
+  const exportCsv = useExportUsersCsv();
 
   useEffect(() => {
     if (!isAdmin) {
       setForm(defaultForm);
+      setInviteForm(defaultInviteForm);
+      setSelectedUserIds([]);
     }
   }, [isAdmin]);
 
@@ -102,9 +161,33 @@ const UsersSettings = () => {
       const value = event.target.value;
       setForm((prev) => ({
         ...prev,
-        [field]: field === 'role' ? (value as UserRole) : value
+        [field]:
+          field === 'role'
+            ? (value as UserRole)
+            : field === 'phoneNumber'
+              ? formatPhoneNumber(value)
+              : value
       }));
     };
+
+  const handleInviteChange =
+    (field: keyof typeof inviteForm) =>
+    (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      const value = event.target.value;
+      setInviteForm((prev) => ({
+        ...prev,
+        [field]:
+          field === 'role'
+            ? (value as UserRole)
+            : field === 'expiresInHours'
+              ? Number.parseInt(value, 10) || prev.expiresInHours
+              : value
+      }));
+    };
+
+  const resetInviteForm = () => {
+    setInviteForm(defaultInviteForm);
+  };
 
   const resetForm = () => {
     setForm({
@@ -194,6 +277,219 @@ const UsersSettings = () => {
       });
     }
   };
+
+  const handleInviteSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (createInvite.isPending) {
+      return;
+    }
+
+    try {
+      const result = await createInvite.mutateAsync({
+        email: inviteForm.email.trim(),
+        role: inviteForm.role,
+        expiresInHours: inviteForm.expiresInHours
+      });
+
+      resetInviteForm();
+
+      if (result.token) {
+        setTokenDetails({
+          token: result.token,
+          title: 'Invite Token Generated',
+          subtitle: `Share this one-time token with ${result.email} to complete their account setup.`
+        });
+        tokenModal.onOpen();
+      }
+
+      toast({
+        title: 'Invite created',
+        description: `An invite token for ${result.email} has been generated.`,
+        status: 'success',
+        duration: 4000,
+        isClosable: true
+      });
+    } catch (err) {
+      toast({
+        title: 'Unable to create invite',
+        description: getErrorMessage(err),
+        status: 'error',
+        duration: 5000,
+        isClosable: true
+      });
+    }
+  };
+
+  const handleRevokeInvite = async (inviteId: string) => {
+    if (revokeInvite.isPending) {
+      return;
+    }
+
+    try {
+      await revokeInvite.mutateAsync(inviteId);
+      toast({
+        title: 'Invite revoked',
+        status: 'info',
+        duration: 3000,
+        isClosable: true
+      });
+    } catch (err) {
+      toast({
+        title: 'Unable to revoke invite',
+        description: getErrorMessage(err),
+        status: 'error',
+        duration: 5000,
+        isClosable: true
+      });
+    }
+  };
+
+  const handleForceReset = async (userId: string) => {
+    if (forcePasswordReset.isPending) {
+      return;
+    }
+
+    try {
+      const result = await forcePasswordReset.mutateAsync({ userId });
+      setTokenDetails({
+        token: result.token,
+        title: 'Forced password reset',
+        subtitle: 'Provide this token to the user so they can set a new password.'
+      });
+      tokenModal.onOpen();
+      toast({
+        title: 'Password reset required',
+        description: 'Existing sessions were revoked.',
+        status: 'info',
+        duration: 4000,
+        isClosable: true
+      });
+    } catch (err) {
+      toast({
+        title: 'Unable to trigger password reset',
+        description: getErrorMessage(err),
+        status: 'error',
+        duration: 5000,
+        isClosable: true
+      });
+    }
+  };
+
+  const handleSelectUser = (userId: string, checked: boolean) => {
+    setSelectedUserIds((prev) => {
+      if (checked) {
+        if (prev.includes(userId)) {
+          return prev;
+        }
+        return [...prev, userId];
+      }
+      return prev.filter((id) => id !== userId);
+    });
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedUserIds(users.map((item) => item.id));
+      return;
+    }
+    setSelectedUserIds([]);
+  };
+
+  const handleBulkRoleChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    setBulkRole(event.target.value as UserRole);
+  };
+
+  const handleBulkRoleUpdate = async () => {
+    if (!selectedUserIds.length || bulkUpdateRoles.isPending) {
+      return;
+    }
+
+    try {
+      await bulkUpdateRoles.mutateAsync({ userIds: selectedUserIds, role: bulkRole });
+      toast({
+        title: 'Roles updated',
+        description: `${selectedUserIds.length} user(s) now have the ${bulkRole.replace('_', ' ')} role.`,
+        status: 'success',
+        duration: 4000,
+        isClosable: true
+      });
+      setSelectedUserIds([]);
+    } catch (err) {
+      toast({
+        title: 'Unable to update roles',
+        description: getErrorMessage(err),
+        status: 'error',
+        duration: 5000,
+        isClosable: true
+      });
+    }
+  };
+
+  const handleExportCsv = async () => {
+    if (exportCsv.isPending) {
+      return;
+    }
+
+    try {
+      const data = await exportCsv.mutateAsync();
+      const blob = new Blob([data], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `users-${dayjs().format('YYYYMMDD-HHmmss')}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast({
+        title: 'Export started',
+        status: 'success',
+        duration: 3000,
+        isClosable: true
+      });
+    } catch (err) {
+      toast({
+        title: 'Unable to export users',
+        description: getErrorMessage(err),
+        status: 'error',
+        duration: 5000,
+        isClosable: true
+      });
+    }
+  };
+
+  const handleCopyToken = async (token: string) => {
+    try {
+      await navigator.clipboard.writeText(token);
+      toast({
+        title: 'Token copied',
+        status: 'success',
+        duration: 2000,
+        isClosable: true
+      });
+    } catch {
+      toast({
+        title: 'Unable to copy token',
+        status: 'error',
+        duration: 3000,
+        isClosable: true
+      });
+    }
+  };
+
+  const handleTokenModalClose = () => {
+    tokenModal.onClose();
+    setTokenDetails(null);
+  };
+
+  const allSelected = useMemo(
+    () => selectedUserIds.length > 0 && selectedUserIds.length === users.length,
+    [selectedUserIds, users.length]
+  );
+
+  const isBulkDisabled = selectedUserIds.length === 0 || bulkUpdateRoles.isPending;
+  const canInvite = inviteForm.email.trim().length > 0;
 
   if (!isAdmin) {
     return (
@@ -316,6 +612,7 @@ const UsersSettings = () => {
                   <Tr>
                     <Th>Name</Th>
                     <Th>Email</Th>
+                    <Th>Phone</Th>
                     <Th>Role</Th>
                     <Th>Last Login</Th>
                     <Th>Created</Th>
@@ -324,17 +621,19 @@ const UsersSettings = () => {
                 <Tbody>
                   {users.length === 0 && (
                     <Tr>
-                      <Td colSpan={5}>
+                      <Td colSpan={6}>
                         <Text color="gray.500">No users found for this tenant.</Text>
                       </Td>
                     </Tr>
                   )}
                   {users.map((item: UserProfile) => {
                     const fullName = [item.firstName, item.lastName].filter(Boolean).join(' ');
+                    const formattedPhone = formatPhoneNumber(item.phoneNumber ?? '');
                     return (
                       <Tr key={item.id}>
                         <Td>{fullName || '—'}</Td>
                         <Td>{item.email}</Td>
+                        <Td>{formattedPhone || '—'}</Td>
                         <Td>{item.role.replace('_', ' ')}</Td>
                         <Td>{formatDate(item.lastLoginAt)}</Td>
                         <Td>{formatDate(item.createdAt)}</Td>

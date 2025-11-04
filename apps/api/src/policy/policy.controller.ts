@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Res,
   UploadedFile,
@@ -26,6 +27,7 @@ import {
 import { CreatePolicyDto } from './dto/create-policy.dto';
 import { CreatePolicyVersionDto } from './dto/create-policy-version.dto';
 import { SubmitPolicyVersionDto } from './dto/submit-policy-version.dto';
+import { UpdatePolicyDto } from './dto/update-policy.dto';
 import { ApprovalDecisionDto } from './dto/approval-decision.dto';
 
 @Controller('policies')
@@ -57,6 +59,15 @@ export class PolicyController {
     @PolicyActor() actor: PolicyActorContext
   ): Promise<PolicyDetail> {
     return this.policyService.createPolicy(actor, dto);
+  }
+
+  @Patch(':policyId')
+  async update(
+    @Param('policyId') policyId: string,
+    @Body() dto: UpdatePolicyDto,
+    @PolicyActor() actor: PolicyActorContext
+  ): Promise<PolicyDetail> {
+    return this.policyService.updatePolicy(policyId, actor, dto);
   }
 
   @Post(':policyId/versions')

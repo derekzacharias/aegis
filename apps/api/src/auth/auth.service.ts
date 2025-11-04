@@ -9,11 +9,13 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma, User, UserRole } from '@prisma/client';
 import { compare, hash } from 'bcrypt';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { RegisterDto } from './dto/register.dto';
+import { AcceptInviteDto } from './dto/accept-invite.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { AuthenticatedUser, AuthResponse, AuthTokens } from './types/auth.types';
 import {
   DEFAULT_PASSWORD_COMPLEXITY,
@@ -71,6 +73,13 @@ export class AuthService {
       }
     });
 
+    if (user.mustResetPassword) {
+      throw new UnauthorizedException({
+        message: 'Password reset required',
+        code: 'PASSWORD_RESET_REQUIRED'
+      });
+    }
+
     const tokens = await this.generateTokens(user);
     const { refreshTokenId, ...publicTokens } = tokens;
     await this.storeRefreshToken(user.id, publicTokens.refreshToken, refreshTokenId, {
@@ -81,6 +90,275 @@ export class AuthService {
       user: this.sanitizeUser(user),
       tokens: publicTokens
     };
+  }
+
+  async acceptInvite(payload: AcceptInviteDto): Promise<AuthResponse> {
+    const token = payload.token.trim();
+    const tokenHash = this.hashToken(token);
+    const normalizedEmail = payload.email.trim().toLowerCase();
+    const now = new Date();
+
+    const invite = await this.prisma.userInvite.findFirst({
+      where: {
+        tokenHash,
+        revokedAt: null
+      },
+      include: {
+        organization: {
+          select: { id: true }
+        }
+      }
+    });
+
+    if (!invite || invite.expiresAt <= now) {
+      throw new BadRequestException('Invalid or expired invite');
+    }
+
+    if (invite.email.toLowerCase() !== normalizedEmail) {
+      throw new BadRequestException('Invite email does not match');
+    }
+
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail }
+    });
+
+    if (existingUser) {
+      throw new ConflictException('Email is already registered');
+    }
+
+    this.ensurePasswordPolicy(payload.password);
+
+    const passwordHash = await hash(payload.password, 12);
+    const passwordChangedAt = new Date();
+
+    const user = await this.prisma.$transaction(async (tx) => {
+      await tx.userInvite.update({
+        where: { id: invite.id },
+        data: { acceptedAt: new Date() }
+      });
+
+      const created = await tx.user.create({
+        data: {
+          email: normalizedEmail,
+          firstName: payload.firstName?.trim() || null,
+          lastName: payload.lastName?.trim() || null,
+          jobTitle: payload.jobTitle?.trim() || null,
+          phoneNumber: payload.phoneNumber?.trim() || null,
+          passwordHash,
+          passwordChangedAt,
+          role: invite.role,
+          organizationId: invite.organizationId,
+          mustResetPassword: false
+        }
+      });
+
+      await tx.userProfileAudit.create({
+        data: {
+          userId: created.id,
+          actorId: null,
+          changes: {
+            invited: {
+              previous: invite.email,
+              current: 'accepted',
+              inviteId: invite.id
+            }
+          } as Prisma.InputJsonValue
+        }
+      });
+
+      return created;
+    });
+
+    const tokens = await this.generateTokens(user);
+    const { refreshTokenId, ...publicTokens } = tokens;
+    await this.storeRefreshToken(user.id, publicTokens.refreshToken, refreshTokenId, {
+      lastLoginAt: new Date()
+    });
+
+    this.logger.log(
+      JSON.stringify({
+        event: 'auth.invite.accepted',
+        inviteId: invite.id,
+        userId: user.id,
+        email: user.email
+      })
+    );
+
+    return {
+      user: this.sanitizeUser(user),
+      tokens: publicTokens
+    };
+  }
+
+  async acceptInvite(payload: AcceptInviteDto): Promise<AuthResponse> {
+    const normalizedEmail = payload.email.trim().toLowerCase();
+    const tokenHash = this.hashOpaqueToken(payload.token);
+    const now = new Date();
+
+    const invite = await this.prisma.userInvite.findFirst({
+      where: {
+        tokenHash,
+        revokedAt: null,
+        acceptedAt: null,
+        expiresAt: {
+          gt: now
+        }
+      }
+    });
+
+    if (!invite) {
+      throw new UnauthorizedException('Invalid or expired invite token');
+    }
+
+    if (invite.email.trim().toLowerCase() !== normalizedEmail) {
+      throw new UnauthorizedException('Invite token does not match email');
+    }
+
+    const existing = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail }
+    });
+
+    if (existing) {
+      throw new ConflictException('Email is already registered');
+    }
+
+    this.ensurePasswordPolicy(payload.password);
+
+    const passwordHash = await hash(payload.password, 12);
+    const passwordChangedAt = new Date();
+
+    const createdUser = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email: normalizedEmail,
+          firstName: payload.firstName?.trim() || null,
+          lastName: payload.lastName?.trim() || null,
+          jobTitle: payload.jobTitle?.trim() || null,
+          phoneNumber: payload.phoneNumber?.trim() || null,
+          role: invite.role,
+          organizationId: invite.organizationId,
+          passwordHash,
+          passwordChangedAt,
+          mustResetPassword: false
+        }
+      });
+
+      const acceptedAt = new Date();
+
+      await tx.userInvite.update({
+        where: { id: invite.id },
+        data: {
+          acceptedAt,
+          updatedAt: acceptedAt
+        }
+      });
+
+      await tx.userInvite.updateMany({
+        where: {
+          id: { not: invite.id },
+          organizationId: invite.organizationId,
+          email: invite.email,
+          revokedAt: null,
+          acceptedAt: null
+        },
+        data: {
+          revokedAt: acceptedAt,
+          updatedAt: acceptedAt
+        }
+      });
+
+      return user;
+    });
+
+    const tokens = await this.generateTokens(createdUser);
+    const { refreshTokenId, ...publicTokens } = tokens;
+    await this.storeRefreshToken(createdUser.id, publicTokens.refreshToken, refreshTokenId, {
+      lastLoginAt: new Date()
+    });
+
+    return {
+      user: this.sanitizeUser(createdUser),
+      tokens: publicTokens
+    };
+  }
+
+  async resetPasswordWithToken(payload: ResetPasswordDto): Promise<void> {
+    const tokenHash = this.hashOpaqueToken(payload.token);
+    const now = new Date();
+
+    const resetRecord = await this.prisma.userPasswordResetToken.findFirst({
+      where: {
+        tokenHash,
+        consumedAt: null,
+        expiresAt: {
+          gt: now
+        }
+      }
+    });
+
+    if (!resetRecord) {
+      throw new UnauthorizedException('Invalid or expired reset token');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: resetRecord.userId }
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('Invalid reset token');
+    }
+
+    this.ensurePasswordPolicy(payload.password);
+
+    const newHash = await hash(payload.password, 12);
+    const passwordChangedAt = new Date();
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          passwordHash: newHash,
+          passwordChangedAt,
+          mustResetPassword: false,
+          refreshTokenHash: null,
+          refreshTokenId: null,
+          refreshTokenIssuedAt: null,
+          refreshTokenInvalidatedAt: passwordChangedAt
+        }
+      });
+
+      await tx.userPasswordResetToken.update({
+        where: { id: resetRecord.id },
+        data: {
+          consumedAt: passwordChangedAt
+        }
+      });
+
+      await tx.userPasswordResetToken.updateMany({
+        where: {
+          userId: user.id,
+          consumedAt: null,
+          id: { not: resetRecord.id }
+        },
+        data: {
+          consumedAt: passwordChangedAt
+        }
+      });
+
+      await tx.userProfileAudit.create({
+        data: {
+          userId: user.id,
+          actorId: null,
+          changes: {
+            passwordReset: {
+              previous: 'pending',
+              current: 'completed'
+            }
+          } as Prisma.InputJsonValue,
+          createdAt: passwordChangedAt
+        }
+      });
+    });
   }
 
   async login(payload: LoginDto): Promise<AuthResponse> {
@@ -116,6 +394,14 @@ export class AuthService {
 
     if (!isValid) {
       throw new UnauthorizedException('Invalid credentials');
+    }
+
+    if (user.mustResetPassword) {
+      await this.invalidateRefreshToken(user.id);
+      throw new UnauthorizedException({
+        message: 'Password reset required',
+        code: 'PASSWORD_RESET_REQUIRED'
+      });
     }
 
     const tokens = await this.generateTokens(user);
@@ -214,6 +500,73 @@ export class AuthService {
     };
   }
 
+  async resetPasswordWithToken(payload: ResetPasswordDto): Promise<void> {
+    const token = payload.token.trim();
+    const tokenHash = this.hashToken(token);
+    const now = new Date();
+
+    const resetToken = await this.prisma.userPasswordResetToken.findFirst({
+      where: { tokenHash },
+      include: {
+        user: true
+      }
+    });
+
+    if (
+      !resetToken ||
+      resetToken.consumedAt ||
+      resetToken.expiresAt <= now ||
+      !resetToken.user
+    ) {
+      throw new BadRequestException('Invalid or expired reset token');
+    }
+
+    this.ensurePasswordPolicy(payload.password);
+
+    const passwordHash = await hash(payload.password, 12);
+    const passwordChangedAt = new Date();
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: resetToken.userId },
+        data: {
+          passwordHash,
+          passwordChangedAt,
+          mustResetPassword: false,
+          refreshTokenHash: null,
+          refreshTokenId: null,
+          refreshTokenIssuedAt: null,
+          refreshTokenInvalidatedAt: passwordChangedAt
+        }
+      });
+
+      await tx.userPasswordResetToken.update({
+        where: { id: resetToken.id },
+        data: { consumedAt: passwordChangedAt }
+      });
+
+      await tx.userProfileAudit.create({
+        data: {
+          userId: resetToken.userId,
+          actorId: null,
+          changes: {
+            password: {
+              previous: 'reset-required',
+              current: 'reset-completed'
+            }
+          } as Prisma.InputJsonValue
+        }
+      });
+    });
+
+    this.logger.log(
+      JSON.stringify({
+        event: 'auth.password.reset',
+        userId: resetToken.userId
+      })
+    );
+  }
+
   private async recordRefreshFailure(
     userId: string | null,
     reason: string,
@@ -284,6 +637,7 @@ export class AuthService {
       bio: user.bio,
       role: user.role,
       organizationId: user.organizationId,
+      mustResetPassword: user.mustResetPassword,
       lastLoginAt: user.lastLoginAt ? user.lastLoginAt.toISOString() : null,
       createdAt: user.createdAt.toISOString(),
       updatedAt: user.updatedAt.toISOString()
@@ -333,6 +687,10 @@ export class AuthService {
     };
   }
 
+  private hashToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
+
   private async storeRefreshToken(
     userId: string,
     refreshToken: string,
@@ -352,6 +710,10 @@ export class AuthService {
         ...(extra ?? {})
       }
     });
+  }
+
+  private hashOpaqueToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
   }
 
   private ensureRole(role?: UserRole): UserRole {

@@ -4,6 +4,8 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { AcceptInviteDto } from './dto/accept-invite.dto';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
 import { Roles } from './decorators/roles.decorator';
@@ -29,6 +31,19 @@ export class AuthController {
   @Post('refresh')
   async refresh(@Body() payload: RefreshDto): Promise<AuthResponse> {
     return this.authService.refresh(payload);
+  }
+
+  @Public()
+  @Post('invite/accept')
+  async acceptInvite(@Body() payload: AcceptInviteDto): Promise<AuthResponse> {
+    return this.authService.acceptInvite(payload);
+  }
+
+  @Public()
+  @Post('password/reset')
+  async resetPassword(@Body() payload: ResetPasswordDto): Promise<{ success: true }> {
+    await this.authService.resetPasswordWithToken(payload);
+    return { success: true };
   }
 
   @Post('logout')
