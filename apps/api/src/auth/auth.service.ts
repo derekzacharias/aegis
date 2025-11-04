@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   UnauthorizedException
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -35,6 +36,8 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService
   ) {}
+
+  private readonly logger = new Logger(AuthService.name);
 
   async register(payload: RegisterDto): Promise<AuthResponse> {
     const email = payload.email.trim().toLowerCase();
@@ -137,10 +140,18 @@ export class AuthService {
         audience: this.getTokenAudience()
       });
     } catch (error) {
+      await this.recordRefreshFailure(null, 'verification-failed', {
+        error: (error as Error).message
+      });
       throw new UnauthorizedException('Unable to refresh session');
     }
 
     if (decoded.type !== 'refresh' || !decoded.sub || !decoded.jti) {
+      await this.recordRefreshFailure(decoded.sub ?? null, 'invalid-payload', {
+        tokenType: decoded.type ?? 'unknown',
+        hasSubject: Boolean(decoded.sub),
+        hasJti: Boolean(decoded.jti)
+      });
       throw new UnauthorizedException('Unable to refresh session');
     }
 
@@ -149,6 +160,7 @@ export class AuthService {
     });
 
     if (!user || !user.refreshTokenHash || !user.refreshTokenId) {
+      await this.recordRefreshFailure(decoded.sub, 'missing-refresh-state');
       throw new UnauthorizedException('Unable to refresh session');
     }
 
@@ -156,6 +168,10 @@ export class AuthService {
       const invalidatedAt = user.refreshTokenInvalidatedAt.getTime();
       if (decoded.iat * 1000 <= invalidatedAt) {
         await this.invalidateRefreshToken(user.id);
+        await this.recordRefreshFailure(user.id, 'token-invalidated', {
+          invalidatedAt: user.refreshTokenInvalidatedAt.toISOString(),
+          issuedAt: user.refreshTokenIssuedAt?.toISOString() ?? null
+        });
         throw new UnauthorizedException('Unable to refresh session');
       }
     }
@@ -164,12 +180,19 @@ export class AuthService {
       const passwordChangedAt = user.passwordChangedAt.getTime();
       if (decoded.iat * 1000 <= passwordChangedAt) {
         await this.invalidateRefreshToken(user.id);
+        await this.recordRefreshFailure(user.id, 'password-rotated', {
+          passwordChangedAt: user.passwordChangedAt.toISOString()
+        });
         throw new UnauthorizedException('Unable to refresh session');
       }
     }
 
     if (decoded.jti !== user.refreshTokenId) {
       await this.invalidateRefreshToken(user.id);
+      await this.recordRefreshFailure(user.id, 'refresh-id-mismatch', {
+        expected: user.refreshTokenId,
+        received: decoded.jti
+      });
       throw new UnauthorizedException('Unable to refresh session');
     }
 
@@ -177,6 +200,7 @@ export class AuthService {
 
     if (!matches) {
       await this.invalidateRefreshToken(user.id);
+      await this.recordRefreshFailure(user.id, 'hash-mismatch');
       throw new UnauthorizedException('Unable to refresh session');
     }
 
@@ -188,6 +212,47 @@ export class AuthService {
       user: this.sanitizeUser(user),
       tokens: publicTokens
     };
+  }
+
+  private async recordRefreshFailure(
+    userId: string | null,
+    reason: string,
+    metadata: Record<string, unknown> = {}
+  ): Promise<void> {
+    this.logger.warn(
+      JSON.stringify({
+        event: 'auth.refresh.failure',
+        userId,
+        reason,
+        metadata
+      })
+    );
+
+    if (!userId) {
+      return;
+    }
+
+    try {
+      await this.prisma.userProfileAudit.create({
+        data: {
+          userId,
+          actorId: null,
+          changes: {
+            refreshToken: {
+              previous: 'active',
+              current: 'invalidated',
+              reason,
+              metadata
+            }
+          } as Prisma.InputJsonValue
+        }
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to persist refresh failure audit for user ${userId}: ${(error as Error).message}`,
+        (error as Error).stack
+      );
+    }
   }
 
   async logout(userId: string): Promise<void> {
