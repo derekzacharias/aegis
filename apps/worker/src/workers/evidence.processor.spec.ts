@@ -18,7 +18,11 @@ describe('EvidenceProcessor', () => {
       update: jest.fn()
     },
     evidenceStatusHistory: {
-      create: jest.fn()
+      create: jest.fn(),
+      findFirst: jest.fn()
+    },
+    organizationSettings: {
+      findUnique: jest.fn()
     }
   };
 
@@ -39,19 +43,23 @@ describe('EvidenceProcessor', () => {
     recordDuration: jest.fn()
   };
 
+  const defaultConfigImpl = (key: string) => {
+    switch (key) {
+      case 'antivirus.engineName':
+        return 'ClamAV';
+      case 'antivirus.enabled':
+        return true;
+      case 'antivirus.quarantineOnError':
+        return true;
+      case 'antivirus.autoReleaseStrategy':
+        return 'pending';
+      default:
+        return undefined;
+    }
+  };
+
   const configMock: any = {
-    get: jest.fn((key: string) => {
-      switch (key) {
-        case 'antivirus.engineName':
-          return 'ClamAV';
-        case 'antivirus.enabled':
-          return true;
-        case 'antivirus.quarantineOnError':
-          return true;
-        default:
-          return undefined;
-      }
-    })
+    get: jest.fn(defaultConfigImpl)
   };
 
   const queue = createJobQueue();
@@ -77,6 +85,9 @@ describe('EvidenceProcessor', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    configMock.get.mockImplementation(defaultConfigImpl);
+    prismaMock.evidenceStatusHistory.findFirst.mockResolvedValue(null);
+    prismaMock.organizationSettings.findUnique.mockResolvedValue(null);
     queue.reset();
     processor = new EvidenceProcessor(
       prismaMock,
@@ -193,6 +204,67 @@ describe('EvidenceProcessor', () => {
     );
   });
 
+  it('auto-releases quarantined evidence to pending when configured', async () => {
+    prismaMock.organizationSettings.findUnique.mockResolvedValue({
+      antivirusAutoReleaseStrategy: 'pending'
+    });
+
+    prismaMock.evidenceItem.findUnique.mockResolvedValueOnce({
+      id: 'evidence-4',
+      status: EvidenceStatus.QUARANTINED,
+      organizationId: 'org-2',
+      fileSize: 1024,
+      originalFilename: 'artifact.pdf'
+    });
+
+    antivirusMock.scan.mockResolvedValue({
+      status: EvidenceScanStatus.CLEAN,
+      durationMs: 700,
+      bytesScanned: 1024,
+      engineVersion: 'ClamAV 1.0',
+      signatureVersion: '27123',
+      notes: 'Clean re-scan',
+      findings: {}
+    });
+
+    prismaMock.evidenceStatusHistory.create.mockResolvedValue(undefined);
+
+    await invoke({
+      evidenceId: 'evidence-4',
+      scanId: 'scan-clean-pending',
+      storageUri: 'file:///tmp/evidence/artifact.pdf',
+      storageKey: 'artifact.pdf',
+      storageProvider: 'LOCAL'
+    });
+
+    expect(prismaMock.evidenceStatusHistory.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          toStatus: EvidenceStatus.PENDING
+        })
+      })
+    );
+    expect(prismaMock.evidenceItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: EvidenceStatus.PENDING,
+          nextAction: expect.stringContaining('Auto-released')
+        })
+      })
+    );
+    expect(notificationsMock.notifyEvidence).toHaveBeenCalledWith(
+      expect.objectContaining({
+        evidenceId: 'evidence-4',
+        status: 'released'
+      })
+    );
+    expect(metricsMock.incrementCounter).toHaveBeenCalledWith(
+      expect.stringContaining('auto_released'),
+      1,
+      expect.objectContaining({ strategy: 'pending', target: EvidenceStatus.PENDING })
+    );
+  });
+
   it('quarantines evidence and records failure when scanner is unavailable', async () => {
     antivirusMock.scan.mockRejectedValue(new AntivirusUnavailableError('Engine offline'));
 
@@ -217,3 +289,151 @@ describe('EvidenceProcessor', () => {
     expect(notificationsMock.notifyEvidence).toHaveBeenCalled();
   });
 });
+
+  it('keeps quarantined evidence when auto-release strategy is manual', async () => {
+    configMock.get.mockImplementation((key: string) => {
+      switch (key) {
+        case 'antivirus.engineName':
+          return 'ClamAV';
+        case 'antivirus.enabled':
+          return true;
+        case 'antivirus.quarantineOnError':
+          return true;
+        case 'antivirus.autoReleaseStrategy':
+          return 'manual';
+        default:
+          return undefined;
+      }
+    });
+
+    prismaMock.organizationSettings.findUnique.mockResolvedValue(null);
+
+    processor = new EvidenceProcessor(
+      prismaMock,
+      fetcherMock,
+      antivirusMock,
+      notificationsMock,
+      metricsMock,
+      configMock,
+      queue
+    );
+
+    metricsMock.incrementCounter.mockClear();
+
+    prismaMock.evidenceItem.findUnique.mockResolvedValue({
+      id: 'evidence-2',
+      status: EvidenceStatus.QUARANTINED,
+      organizationId: 'org-1',
+      fileSize: 4096,
+      originalFilename: 'artifact.pdf'
+    });
+
+    antivirusMock.scan.mockResolvedValue({
+      status: EvidenceScanStatus.CLEAN,
+      durationMs: 900,
+      bytesScanned: 4096,
+      engineVersion: 'ClamAV 1.0',
+      signatureVersion: '27123',
+      notes: 'Re-scan clean',
+      findings: {},
+      signature: null
+    });
+
+    prismaMock.evidenceStatusHistory.findFirst.mockResolvedValue({
+      fromStatus: EvidenceStatus.APPROVED
+    });
+
+    await invoke({
+      evidenceId: 'evidence-2',
+      scanId: 'scan-clean',
+      storageUri: 'file:///tmp/evidence/artifact.pdf',
+      storageKey: 'artifact.pdf',
+      storageProvider: 'LOCAL'
+    });
+
+    expect(prismaMock.evidenceItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'evidence-2' },
+        data: expect.not.objectContaining({
+          status: expect.anything()
+        })
+      })
+    );
+    expect(prismaMock.evidenceStatusHistory.create).not.toHaveBeenCalled();
+    expect(notificationsMock.notifyEvidence).not.toHaveBeenCalledWith(
+      expect.objectContaining({ evidenceId: 'evidence-2', status: 'released' })
+    );
+    expect(metricsMock.incrementCounter).not.toHaveBeenCalledWith(
+      expect.stringContaining('auto_released'),
+      expect.anything(),
+      expect.anything()
+    );
+  });
+
+  it('auto-releases quarantined evidence to previous status when configured', async () => {
+    prismaMock.organizationSettings.findUnique.mockResolvedValue({
+      antivirusAutoReleaseStrategy: 'previous'
+    });
+
+    prismaMock.evidenceItem.findUnique.mockResolvedValue({
+      id: 'evidence-3',
+      status: EvidenceStatus.QUARANTINED,
+      organizationId: 'org-1',
+      fileSize: 4096,
+      originalFilename: 'artifact.pdf'
+    });
+
+    antivirusMock.scan.mockResolvedValue({
+      status: EvidenceScanStatus.CLEAN,
+      durationMs: 1200,
+      bytesScanned: 4096,
+      engineVersion: 'ClamAV 1.0',
+      signatureVersion: '27123',
+      notes: 'Re-scan clean',
+      findings: {},
+      signature: null
+    });
+
+    prismaMock.evidenceStatusHistory.findFirst.mockResolvedValue({
+      fromStatus: EvidenceStatus.APPROVED
+    });
+
+    prismaMock.evidenceStatusHistory.create.mockResolvedValue(undefined);
+
+    await invoke({
+      evidenceId: 'evidence-3',
+      scanId: 'scan-clean-2',
+      storageUri: 'file:///tmp/evidence/artifact.pdf',
+      storageKey: 'artifact.pdf',
+      storageProvider: 'LOCAL'
+    });
+
+    expect(prismaMock.evidenceItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: EvidenceStatus.APPROVED
+        })
+      })
+    );
+    expect(prismaMock.evidenceStatusHistory.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          toStatus: EvidenceStatus.APPROVED
+        })
+      })
+    );
+    expect(metricsMock.incrementCounter).toHaveBeenCalledWith(
+      expect.stringContaining('auto_released'),
+      1,
+      expect.objectContaining({
+        strategy: 'previous',
+        target: EvidenceStatus.APPROVED
+      })
+    );
+    expect(notificationsMock.notifyEvidence).toHaveBeenCalledWith(
+      expect.objectContaining({
+        evidenceId: 'evidence-3',
+        status: 'released'
+      })
+    );
+  });

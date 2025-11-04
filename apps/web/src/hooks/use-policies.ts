@@ -17,6 +17,11 @@ import apiClient from '../services/api-client';
 
 const baseKey = 'policies';
 
+type UpdatePolicyInput = {
+  id: string;
+  payload: Partial<CreatePolicyInput>;
+};
+
 export const usePolicySummaries = (actorId?: string) =>
   useQuery({
     queryKey: [baseKey, 'list', actorId],
@@ -67,6 +72,30 @@ export const useCreatePolicy = (actorId?: string) => {
           current
             ? [detail, ...current.filter((item) => item.id !== detail.id)]
             : [detail]
+      );
+      queryClient.setQueryData<PolicyDetail>(
+        [baseKey, 'detail', detail.id, actorId],
+        detail
+      );
+    }
+  });
+};
+
+export const useUpdatePolicy = (actorId?: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, payload }: UpdatePolicyInput) => {
+      const { data } = await apiClient.patch<PolicyDetail>(`/policies/${id}`, payload);
+      return data;
+    },
+    onSuccess(detail) {
+      queryClient.setQueryData<PolicySummary[] | undefined>(
+        [baseKey, 'list', actorId],
+        (current) =>
+          current
+            ? current.map((item) => (item.id === detail.id ? detail : item))
+            : current
       );
       queryClient.setQueryData<PolicyDetail>(
         [baseKey, 'detail', detail.id, actorId],

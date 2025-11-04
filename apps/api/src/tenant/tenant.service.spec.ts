@@ -11,6 +11,10 @@ describe('TenantService', () => {
       organization: {
         findUnique: jest.fn(),
         update: jest.fn()
+      },
+      organizationSettings: {
+        findUnique: jest.fn(),
+        upsert: jest.fn()
       }
     } as unknown as jest.Mocked<PrismaService>;
 
@@ -96,5 +100,40 @@ describe('TenantService', () => {
         primaryContactEmail: undefined
       })
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('returns default antivirus settings when none stored', async () => {
+    prisma.organizationSettings.findUnique.mockResolvedValueOnce(null as any);
+
+    const settings = await service.getAntivirusSettings('org-1');
+
+    expect(settings).toEqual({ autoReleaseStrategy: 'pending', updatedAt: null });
+    expect(prisma.organizationSettings.findUnique).toHaveBeenCalledWith({
+      where: { organizationId: 'org-1' },
+      select: { antivirusAutoReleaseStrategy: true, updatedAt: true }
+    });
+  });
+
+  it('updates antivirus settings via upsert', async () => {
+    const updatedAt = new Date('2025-11-04T09:00:00Z');
+    prisma.organizationSettings.upsert.mockResolvedValueOnce({
+      antivirusAutoReleaseStrategy: 'previous',
+      updatedAt
+    } as any);
+
+    const payload = await service.updateAntivirusSettings('org-1', {
+      autoReleaseStrategy: 'previous'
+    });
+
+    expect(prisma.organizationSettings.upsert).toHaveBeenCalledWith({
+      where: { organizationId: 'org-1' },
+      update: { antivirusAutoReleaseStrategy: 'previous' },
+      create: { organizationId: 'org-1', antivirusAutoReleaseStrategy: 'previous' },
+      select: { antivirusAutoReleaseStrategy: true, updatedAt: true }
+    });
+    expect(payload).toEqual({
+      autoReleaseStrategy: 'previous',
+      updatedAt: updatedAt.toISOString()
+    });
   });
 });

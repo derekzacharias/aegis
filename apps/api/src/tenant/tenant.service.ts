@@ -1,11 +1,56 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { TenantProfile } from '@compliance/shared';
+import {
+  AntivirusAutoReleaseStrategy,
+  AntivirusSettingsView,
+  TenantProfile
+} from '@compliance/shared';
 import { UpdateTenantProfileDto } from './dto/update-tenant-profile.dto';
+import { UpdateAntivirusSettingsDto } from './dto/update-antivirus-settings.dto';
 
 @Injectable()
 export class TenantService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async getAntivirusSettings(organizationId: string): Promise<AntivirusSettingsView> {
+    const settings = await this.prisma.organizationSettings.findUnique({
+      where: { organizationId },
+      select: {
+        antivirusAutoReleaseStrategy: true,
+        updatedAt: true
+      }
+    });
+
+    return {
+      autoReleaseStrategy: this.coerceStrategy(settings?.antivirusAutoReleaseStrategy),
+      updatedAt: settings?.updatedAt?.toISOString() ?? null
+    };
+  }
+
+  async updateAntivirusSettings(
+    organizationId: string,
+    payload: UpdateAntivirusSettingsDto
+  ): Promise<AntivirusSettingsView> {
+    const updated = await this.prisma.organizationSettings.upsert({
+      where: { organizationId },
+      update: {
+        antivirusAutoReleaseStrategy: payload.autoReleaseStrategy
+      },
+      create: {
+        organizationId,
+        antivirusAutoReleaseStrategy: payload.autoReleaseStrategy
+      },
+      select: {
+        antivirusAutoReleaseStrategy: true,
+        updatedAt: true
+      }
+    });
+
+    return {
+      autoReleaseStrategy: this.coerceStrategy(updated.antivirusAutoReleaseStrategy),
+      updatedAt: updated.updatedAt?.toISOString() ?? null
+    };
+  }
 
   async getProfile(organizationId: string): Promise<TenantProfile> {
     const organization = await this.prisma.organization.findUnique({
@@ -81,5 +126,12 @@ export class TenantService {
       .replace(/(^-|-$)/g, '');
 
     return normalized || `organization-${Date.now()}`;
+  }
+
+  private coerceStrategy(value: string | null | undefined): AntivirusAutoReleaseStrategy {
+    if (value === 'manual' || value === 'previous' || value === 'pending') {
+      return value;
+    }
+    return 'pending';
   }
 }

@@ -29,6 +29,15 @@ export type DashboardOverview = {
     owner: string;
     status: string;
   }>;
+  antivirus: {
+    scansLast24h: number;
+    infectedLast7d: number;
+    failedLast7d: number;
+    quarantinedEvidence: number;
+    averageScanDurationMs: number | null;
+    lastCompletedScanAt: string | null;
+    engine: string | null;
+  };
 };
 
 const fallback: DashboardOverview = {
@@ -101,7 +110,16 @@ const fallback: DashboardOverview = {
       owner: 'Maria Chen',
       status: 'Pending Review'
     }
-  ]
+  ],
+  antivirus: {
+    scansLast24h: 24,
+    infectedLast7d: 1,
+    failedLast7d: 0,
+    quarantinedEvidence: 2,
+    averageScanDurationMs: 4120,
+    lastCompletedScanAt: new Date().toISOString(),
+    engine: 'ClamAV'
+  }
 };
 
 export const useDashboardOverview = () =>

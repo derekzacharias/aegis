@@ -33,6 +33,25 @@ const DashboardPage = () => {
   const { data: schedules = [] } = useSchedules();
 
   const stats = useMemo(() => data?.stats ?? [], [data]);
+  const antivirus = data?.antivirus;
+  const antivirusMetrics = useMemo(() => {
+    if (!antivirus) {
+      return null;
+    }
+    const average =
+      typeof antivirus.averageScanDurationMs === 'number'
+        ? `${(antivirus.averageScanDurationMs / 1000).toFixed(1)}s`
+        : '—';
+    const lastScan = antivirus.lastCompletedScanAt
+      ? new Date(antivirus.lastCompletedScanAt).toLocaleString()
+      : 'No scans recorded';
+
+    return {
+      average,
+      lastScan,
+      engine: antivirus.engine ?? 'Unknown'
+    };
+  }, [antivirus]);
 
   return (
     <VStack align="stretch" spacing={6}>
@@ -53,6 +72,52 @@ const DashboardPage = () => {
           </Stat>
         ))}
       </SimpleGrid>
+
+      {antivirus && antivirusMetrics && (
+        <Box bg="gray.800" borderRadius="xl" p={6}>
+          <Heading size="md" mb={4}>
+            Antivirus Health
+          </Heading>
+          <SimpleGrid columns={{ base: 1, md: 3, xl: 6 }} spacing={4}>
+            <Stat>
+              <StatLabel>Scans (24h)</StatLabel>
+              <StatNumber>{antivirus.scansLast24h}</StatNumber>
+              <StatHelpText>Engine: {antivirusMetrics.engine}</StatHelpText>
+            </Stat>
+            <Stat>
+              <StatLabel>Infected (7d)</StatLabel>
+              <StatNumber color={antivirus.infectedLast7d > 0 ? 'red.300' : undefined}>
+                {antivirus.infectedLast7d}
+              </StatNumber>
+              <StatHelpText>Quarantined automatically</StatHelpText>
+            </Stat>
+            <Stat>
+              <StatLabel>Failures (7d)</StatLabel>
+              <StatNumber color={antivirus.failedLast7d > 0 ? 'orange.300' : undefined}>
+                {antivirus.failedLast7d}
+              </StatNumber>
+              <StatHelpText>Requires analyst review</StatHelpText>
+            </Stat>
+            <Stat>
+              <StatLabel>Active Quarantine</StatLabel>
+              <StatNumber color={antivirus.quarantinedEvidence > 0 ? 'yellow.300' : undefined}>
+                {antivirus.quarantinedEvidence}
+              </StatNumber>
+              <StatHelpText>Evidence items isolated</StatHelpText>
+            </Stat>
+            <Stat>
+              <StatLabel>Avg Scan Duration</StatLabel>
+              <StatNumber>{antivirusMetrics.average}</StatNumber>
+              <StatHelpText>Last 7 days</StatHelpText>
+            </Stat>
+            <Stat>
+              <StatLabel>Last Completed Scan</StatLabel>
+              <StatNumber fontSize="lg">{antivirusMetrics.lastScan}</StatNumber>
+              <StatHelpText>Latest event</StatHelpText>
+            </Stat>
+          </SimpleGrid>
+        </Box>
+      )}
 
       <Grid templateColumns={{ base: '1fr', xl: '2fr 3fr' }} gap={6}>
         <GridItem>
