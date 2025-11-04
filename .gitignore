@@ -11,6 +11,12 @@ gitignore
 !/apps/**/*
 !/libs/
 !/libs/**/*
+!/backend/
+!/backend/**/*
+!/ui/
+!/ui/**/*
+!/ops/
+!/ops/**/*
 !/tools/
 !/tools/**/*
 !/nx.json
@@ -21,3 +27,4 @@ gitignore
 !/run
 !/types/
 !/types/**/*
+!/Makefile

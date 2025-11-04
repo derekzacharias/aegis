@@ -1,0 +1,18 @@
+FROM python:3.11-slim
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=on \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential curl git \
+    && curl https://omnitruck.chef.io/install.sh | bash -s -- -P inspec \
+    && apt-get install -y --no-install-recommends ansible \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY backend/fastapi /app/backend/fastapi
+COPY ops/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+CMD ["celery", "-A", "backend.fastapi.app.celery_app.celery_app", "worker", "--loglevel=info"]
