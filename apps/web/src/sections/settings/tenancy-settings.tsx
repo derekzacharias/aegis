@@ -18,6 +18,7 @@ import axios from 'axios';
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TenantImpactLevel } from '@compliance/shared';
 import { useTenantProfile, useUpdateTenantProfile } from '../../hooks/use-tenant-profile';
+import { safeStorage } from '../../utils/safe-storage';
 
 interface TenantProfileFormState {
   organizationName: string;
@@ -42,11 +43,7 @@ const DEFAULT_DEPLOYMENT: DeploymentPreferencesState = {
 const DEPLOYMENT_STORAGE_KEY = 'tenancy.deployment';
 
 const loadDeployment = (): DeploymentPreferencesState => {
-  if (typeof window === 'undefined') {
-    return DEFAULT_DEPLOYMENT;
-  }
-
-  const raw = window.localStorage.getItem(DEPLOYMENT_STORAGE_KEY);
+  const raw = safeStorage.get(DEPLOYMENT_STORAGE_KEY);
   if (!raw) {
     return DEFAULT_DEPLOYMENT;
   }
@@ -60,10 +57,7 @@ const loadDeployment = (): DeploymentPreferencesState => {
 };
 
 const persistDeployment = (settings: DeploymentPreferencesState) => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  window.localStorage.setItem(DEPLOYMENT_STORAGE_KEY, JSON.stringify(settings));
+  safeStorage.set(DEPLOYMENT_STORAGE_KEY, JSON.stringify(settings));
 };
 
 const impactLevelOptions: Array<{ label: string; value: TenantImpactLevel }> = [

@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { PolicyParticipantGroups, PolicyUserSummary } from '@compliance/shared';
 import apiClient from '../services/api-client';
+import { safeStorage } from '../utils/safe-storage';
 
 type PolicyActorOption = PolicyUserSummary;
 
@@ -36,7 +37,7 @@ const readStoredActor = (): Pick<PolicyActorOption, 'email'> | null => {
     return null;
   }
 
-  const raw = window.localStorage.getItem(storageKey);
+  const raw = safeStorage.get(storageKey);
   if (!raw) {
     return null;
   }
@@ -61,9 +62,7 @@ export const PolicyActorProvider = ({ children }: { children: ReactNode }) => {
   const persistActor = useCallback((next: PolicyActorOption) => {
     actorRef.current = next;
     setActorState(next);
-    if (isBrowser) {
-      window.localStorage.setItem(storageKey, JSON.stringify({ email: next.email }));
-    }
+    safeStorage.set(storageKey, JSON.stringify({ email: next.email }));
   }, [actorRef]);
 
   useEffect(() => {

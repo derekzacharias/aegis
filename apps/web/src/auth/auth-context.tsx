@@ -10,6 +10,7 @@ import {
 import axios, { type AxiosError, type AxiosRequestConfig } from 'axios';
 import { AuthResponse, AuthTokens, AuthUser } from '@compliance/shared';
 import apiClient from '../services/api-client';
+import { safeStorage } from '../utils/safe-storage';
 
 type AuthState = {
   session?: AuthResponse | null;
@@ -39,11 +40,7 @@ const initialState: AuthState = {
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 const readStoredSession = (): AuthResponse | null => {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  const value = window.localStorage.getItem(storageKey);
+  const value = safeStorage.get(storageKey);
   if (!value) {
     return null;
   }
@@ -65,10 +62,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const persistSession = useCallback(
     (session: AuthResponse) => {
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem(storageKey, JSON.stringify(session));
-      }
-
+      safeStorage.set(storageKey, JSON.stringify(session));
       sessionRef.current = session;
       setState({ session, isLoading: false });
       clearAuthError();
@@ -77,10 +71,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   );
 
   const clearSession = useCallback(() => {
-    if (typeof window !== 'undefined') {
-      window.localStorage.removeItem(storageKey);
-    }
-
+    safeStorage.remove(storageKey);
     sessionRef.current = null;
     setState({ session: undefined, isLoading: false });
     clearAuthError();
@@ -126,9 +117,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       void validateSession({ accessToken: stored.tokens.accessToken });
     } else {
       if (stored) {
-        if (typeof window !== 'undefined') {
-          window.localStorage.removeItem(storageKey);
-        }
+        safeStorage.remove(storageKey);
       }
       setState({ session: undefined, isLoading: false });
     }

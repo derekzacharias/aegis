@@ -28,4 +28,7 @@ gitignore
 !/types/
 !/types/**/*
 !/Makefile
+!/.github/
+!/.github/workflows/
+!/.github/workflows/**/*
 apps/api/prisma/.env

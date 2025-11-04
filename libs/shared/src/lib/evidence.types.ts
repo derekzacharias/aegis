@@ -7,7 +7,15 @@ export type EvidenceIngestionStatus =
   | 'QUARANTINED';
 
 export type EvidenceStorageProvider = 'S3' | 'LOCAL';
-export type EvidenceScanStatus = 'PENDING' | 'RUNNING' | 'CLEAN' | 'INFECTED' | 'FAILED';
+export const EvidenceScanStatus = {
+  PENDING: 'PENDING',
+  RUNNING: 'RUNNING',
+  CLEAN: 'CLEAN',
+  INFECTED: 'INFECTED',
+  FAILED: 'FAILED'
+} as const;
+
+export type EvidenceScanStatus = (typeof EvidenceScanStatus)[keyof typeof EvidenceScanStatus];
 
 export interface EvidencePerson {
   id: string;
