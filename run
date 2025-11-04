@@ -48,6 +48,20 @@ function appendLine(file, line) {
   fs.appendFileSync(file, `${line}\n`);
 }
 
+function appendOutputToRunLog(output) {
+  if (!output) {
+    return;
+  }
+
+  for (const line of output.split(/\r?\n/)) {
+    const trimmed = line.trimEnd();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    appendLine(runLogPath, trimmed);
+  }
+}
+
 function log(message) {
   const line = `[${timestamp()}] ${message}`;
   console.log(line);
@@ -254,6 +268,54 @@ async function ensureDockerComposeAvailable() {
   process.exit(1);
 }
 
+async function ensureDockerGroupAccess() {
+  if (process.platform !== 'linux') {
+    return;
+  }
+
+  if (typeof process.getuid === 'function' && process.getuid() === 0) {
+    return;
+  }
+
+  const groupsOutput = readCommandOutput('id', ['-nG']);
+  if (!groupsOutput) {
+    return;
+  }
+
+  const groups = groupsOutput
+    .split(/\s+/)
+    .map((group) => group.trim())
+    .filter(Boolean);
+
+  if (groups.includes('docker')) {
+    return;
+  }
+
+  const user = process.env.USER || process.env.LOGNAME || process.env.USERNAME;
+  if (!user) {
+    log('Docker CLI detected but unable to determine the current user. Ensure your account belongs to the `docker` group.');
+    return;
+  }
+
+  log(`Current user (${user}) is not in the docker group. Attempting to add them (may prompt for your password)...`);
+
+  const useSudo = commandExists('sudo');
+  const command = useSudo ? 'sudo' : 'usermod';
+  const args = useSudo ? ['usermod', '-aG', 'docker', user] : ['-aG', 'docker', user];
+
+  const result = await runCommandCapture(command, args, { env: process.env });
+  appendOutputToRunLog(result.stdout);
+  appendOutputToRunLog(result.stderr);
+
+  if (result.success) {
+    log('Successfully added the current user to the docker group. Log out and back in, then rerun this script.');
+    process.exit(1);
+  }
+
+  log('Failed to add the current user to the docker group automatically. Run `sudo usermod -aG docker $USER`, log out, and rerun this script.');
+  process.exit(result.code ?? 1);
+}
+
 async function ensureDockerAvailable() {
   if (!commandExists('docker')) {
     await installDockerAndCompose();
@@ -268,6 +330,8 @@ async function ensureDockerAvailable() {
   if (dockerVersion) {
     log(`Detected ${dockerVersion}.`);
   }
+
+  await ensureDockerGroupAccess();
 
   if (!dockerComposeAvailable()) {
     await ensureDockerComposeAvailable();
