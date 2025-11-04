@@ -18,6 +18,9 @@ const run = (command, args, options = {}) => {
 };
 
 try {
+  console.log('[smoke] generating prisma client');
+  run('npx', ['prisma', 'generate', '--schema', schemaPath]);
+
   console.log('[smoke] running prisma migrate deploy');
   run('npx', ['prisma', 'migrate', 'deploy', '--schema', schemaPath]);
 
