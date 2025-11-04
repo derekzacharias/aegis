@@ -6,7 +6,8 @@ import {
   PolicyParticipantGroups,
   PolicySummary,
   PolicyVersionView,
-  SubmitPolicyVersionInput
+  SubmitPolicyVersionInput,
+  UpdatePolicyVersionInput
 } from '@compliance/shared';
 import {
   useMutation,
@@ -20,6 +21,17 @@ const baseKey = 'policies';
 type UpdatePolicyInput = {
   id: string;
   payload: Partial<CreatePolicyInput>;
+};
+
+type UpdatePolicyVersionArgs = {
+  policyId: string;
+  versionId: string;
+  payload: UpdatePolicyVersionInput;
+};
+
+type DeletePolicyVersionArgs = {
+  policyId: string;
+  versionId: string;
 };
 
 export const usePolicySummaries = (actorId?: string) =>
@@ -165,6 +177,55 @@ export const useUploadPolicyVersion = (actorId?: string) => {
                 ]
               }
             : current
+      );
+    }
+  });
+};
+
+export const useUpdatePolicyVersion = (actorId?: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ policyId, versionId, payload }: UpdatePolicyVersionArgs) => {
+      const { data } = await apiClient.patch<PolicyVersionView>(
+        `/policies/${policyId}/versions/${versionId}`,
+        payload
+      );
+      return { policyId, version: data };
+    },
+    onSuccess({ policyId, version }) {
+      queryClient.invalidateQueries({ queryKey: [baseKey, 'list', actorId] });
+      queryClient.setQueryData<PolicyDetail | undefined>(
+        [baseKey, 'detail', policyId, actorId],
+        (current) =>
+          current
+            ? {
+                ...current,
+                versions: current.versions.map((existing) =>
+                  existing.id === version.id ? version : existing
+                )
+              }
+            : current
+      );
+    }
+  });
+};
+
+export const useDeletePolicyVersion = (actorId?: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ policyId, versionId }: DeletePolicyVersionArgs) => {
+      const { data } = await apiClient.delete<PolicyDetail>(
+        `/policies/${policyId}/versions/${versionId}`
+      );
+      return { policyId, detail: data };
+    },
+    onSuccess({ policyId, detail }) {
+      queryClient.invalidateQueries({ queryKey: [baseKey, 'list', actorId] });
+      queryClient.setQueryData<PolicyDetail>(
+        [baseKey, 'detail', policyId, actorId],
+        detail
       );
     }
   });

@@ -25,9 +25,14 @@ import {
   AntivirusScanFailureError
 } from '../antivirus/antivirus.errors';
 import { MetricsService } from '../metrics/metrics.service';
-import { NotificationService } from '../notifications/notification.service';
+import {
+  EvidenceNotificationContact,
+  NotificationService
+} from '../notifications/notification.service';
 
 const JOB_NAME = 'evidence.ingest';
+const CONTACT_STALE_DAYS = 90;
+const CONTACT_METRIC_PREFIX = 'notifications.contact';
 
 type EvidenceSummary = {
   id: string;
@@ -108,6 +113,8 @@ export class EvidenceProcessor {
       return { quarantined: false };
     }
 
+    const requestedByContact = await this.resolveContact(requestedBy ?? null, record.organizationId);
+
     await this.prisma.evidenceItem.update({
       where: { id: evidenceId },
       data: {
@@ -122,7 +129,7 @@ export class EvidenceProcessor {
         status: EvidenceScanStatus.RUNNING,
         startedAt: new Date(),
         failureReason: null,
-        findings: null
+        findings: Prisma.JsonNull
       }
     });
 
@@ -159,17 +166,17 @@ export class EvidenceProcessor {
         this.metrics.incrementCounter(`${METRIC_PREFIX}.quarantined`, 1, {
           engine: this.engineName
         });
-        await this.handleInfected(record, scanId, outcome, requestedBy ?? null);
+        await this.handleInfected(record, scanId, outcome, requestedByContact);
         return { quarantined: true };
       }
 
       this.metrics.incrementCounter(`${METRIC_PREFIX}.clean`, 1, {
         engine: this.engineName
       });
-      await this.handleClean(record, scanId, outcome);
+      await this.handleClean(record, scanId, outcome, requestedByContact);
       return { quarantined: false };
     } catch (error) {
-      return this.handleFailure(record, scanId, error as Error, requestedBy ?? null);
+      return this.handleFailure(record, scanId, error as Error, requestedByContact);
     }
   }
 
@@ -212,7 +219,8 @@ export class EvidenceProcessor {
   private async handleClean(
     record: EvidenceSummary,
     scanId: string,
-    outcome: AntivirusScanOutcome
+    outcome: AntivirusScanOutcome,
+    requestedBy: EvidenceNotificationContact | null
   ): Promise<void> {
     const completedAt = new Date();
 
@@ -253,16 +261,16 @@ export class EvidenceProcessor {
 
         await this.prisma.evidenceStatusHistory.create({
           data: {
-          evidenceId: record.id,
-          fromStatus: EvidenceStatus.QUARANTINED,
-          toStatus: releasePlan.toStatus,
-          note: releasePlan.note,
-          changedById: null
+            evidenceId: record.id,
+            fromStatus: EvidenceStatus.QUARANTINED,
+            toStatus: releasePlan.toStatus,
+            note: releasePlan.note,
+            changedById: null
           }
         });
 
         this.metrics.incrementCounter(`${METRIC_PREFIX}.auto_released`, 1, {
-          strategy: this.autoReleaseStrategy,
+          strategy: releasePlan.strategy,
           target: releasePlan.toStatus
         });
       }
@@ -280,7 +288,8 @@ export class EvidenceProcessor {
         scanId,
         status: 'released',
         reason: releasePlan.note,
-        findings: outcome.findings ?? undefined
+        findings: outcome.findings ?? undefined,
+        requestedBy: requestedBy ?? undefined
       });
     }
 
@@ -304,7 +313,14 @@ export class EvidenceProcessor {
 
   private async determineAutoRelease(
     record: EvidenceSummary
-  ): Promise<{ toStatus: EvidenceStatus; nextAction: string; note: string } | null> {
+  ): Promise<
+    {
+      toStatus: EvidenceStatus;
+      nextAction: string;
+      note: string;
+      strategy: AntivirusAutoReleaseStrategy;
+    } | null
+  > {
     const orgSettings = await this.prisma.organizationSettings.findUnique({
       where: { organizationId: record.organizationId },
       select: { antivirusAutoReleaseStrategy: true }
@@ -322,7 +338,8 @@ export class EvidenceProcessor {
       return {
         toStatus: EvidenceStatus.PENDING,
         nextAction: 'Auto-released after clean scan – awaiting analyst review',
-        note: 'Evidence auto-released to pending after clean antivirus scan'
+        note: 'Evidence auto-released to pending after clean antivirus scan',
+        strategy
       };
     }
 
@@ -346,13 +363,17 @@ export class EvidenceProcessor {
     };
 
     if (!recentQuarantine || !recentQuarantine.fromStatus || recentQuarantine.fromStatus === EvidenceStatus.QUARANTINED) {
-      return fallback;
+      return {
+        ...fallback,
+        strategy
+      };
     }
 
     return {
       toStatus: recentQuarantine.fromStatus,
       nextAction: 'Auto-released to previous status after clean antivirus scan',
-      note: `Evidence auto-released to ${recentQuarantine.fromStatus.toLowerCase()} after clean antivirus scan`
+      note: `Evidence auto-released to ${recentQuarantine.fromStatus.toLowerCase()} after clean antivirus scan`,
+      strategy
     };
   }
 
@@ -360,7 +381,7 @@ export class EvidenceProcessor {
     record: EvidenceSummary,
     scanId: string,
     outcome: AntivirusScanOutcome,
-    requestedBy: string | null
+    requestedBy: EvidenceNotificationContact | null
   ): Promise<void> {
     const completedAt = new Date();
 
@@ -431,7 +452,7 @@ export class EvidenceProcessor {
     record: EvidenceSummary,
     scanId: string,
     error: Error,
-    requestedBy: string | null
+    requestedBy: EvidenceNotificationContact | null
   ): Promise<{ quarantined: boolean }> {
     const failureReason = error.message;
     const completedAt = new Date();
@@ -535,5 +556,116 @@ export class EvidenceProcessor {
         originalFilename: true
       }
     });
+  }
+
+  private async resolveContact(
+    email: string | null,
+    organizationId: string
+  ): Promise<EvidenceNotificationContact | null> {
+    if (!email) {
+      return null;
+    }
+
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) {
+      return null;
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: {
+        email: normalized,
+        organizationId
+      },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        jobTitle: true,
+        phoneNumber: true,
+        timezone: true,
+        updatedAt: true
+      }
+    });
+
+    if (!user) {
+      this.logger.warn(
+        JSON.stringify({
+          event: 'contact.missing',
+          email: normalized,
+          organizationId
+        })
+      );
+      this.metrics.incrementCounter(`${CONTACT_METRIC_PREFIX}.missing_profile`, 1, {
+        organizationId
+      });
+      return {
+        id: null,
+        email: normalized,
+        name: null,
+        jobTitle: null,
+        phoneNumber: null,
+        timezone: null,
+        lastUpdated: null,
+        isStale: false,
+        missingFields: ['profile']
+      };
+    }
+
+    const name = [user.firstName, user.lastName].filter(Boolean).join(' ') || null;
+    const missingFields: string[] = [];
+    if (!user.phoneNumber) {
+      missingFields.push('phoneNumber');
+    }
+    if (!user.timezone) {
+      missingFields.push('timezone');
+    }
+
+    const updatedAt = user.updatedAt ?? new Date();
+    const ageMs = Date.now() - updatedAt.getTime();
+    const ageDays = Math.floor(ageMs / 86_400_000);
+    const isStale = ageDays >= CONTACT_STALE_DAYS;
+
+    if (missingFields.length > 0) {
+      this.metrics.incrementCounter(`${CONTACT_METRIC_PREFIX}.missing_fields`, 1, {
+        fields: missingFields.join(','),
+        organizationId
+      });
+      this.logger.warn(
+        JSON.stringify({
+          event: 'contact.incomplete',
+          email: user.email,
+          organizationId,
+          missingFields
+        })
+      );
+    }
+
+    if (isStale) {
+      this.metrics.incrementCounter(`${CONTACT_METRIC_PREFIX}.stale`, 1, {
+        organizationId
+      });
+      this.logger.warn(
+        JSON.stringify({
+          event: 'contact.stale',
+          email: user.email,
+          organizationId,
+          updatedAt: updatedAt.toISOString(),
+          ageDays
+        })
+      );
+    }
+
+    return {
+      id: user.id,
+      email: user.email,
+      name,
+      jobTitle: user.jobTitle ?? null,
+      phoneNumber: user.phoneNumber ?? null,
+      timezone: user.timezone ?? null,
+      lastUpdated: updatedAt.toISOString(),
+      isStale,
+      missingFields
+    };
   }
 }

@@ -1,0 +1,35 @@
+{
+  "extends": ["../../.eslintrc.json"],
+  "ignorePatterns": ["!**/*"],
+  "overrides": [
+    {
+      "files": ["*.ts", "*.tsx", "*.js", "*.jsx"],
+      "parser": "@typescript-eslint/parser",
+      "parserOptions": {
+        "sourceType": "module",
+        "ecmaVersion": 2020,
+        "ecmaFeatures": {
+          "jsx": true
+        }
+      },
+      "plugins": ["@typescript-eslint"],
+      "extends": [
+        "eslint:recommended",
+        "plugin:@nx/typescript"
+      ],
+      "env": {
+        "browser": true,
+        "es2021": true
+      },
+      "rules": {}
+    },
+    {
+      "files": ["*.ts", "*.tsx"],
+      "rules": {}
+    },
+    {
+      "files": ["*.js", "*.jsx"],
+      "rules": {}
+    }
+  ]
+}

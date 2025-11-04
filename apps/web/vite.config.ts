@@ -9,6 +9,7 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 4200,
+    allowedHosts: ['aegis.test.intra'],
     proxy: {
       '/api': {
         target: 'http://localhost:3333',

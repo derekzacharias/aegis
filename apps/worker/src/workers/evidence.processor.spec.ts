@@ -23,6 +23,9 @@ describe('EvidenceProcessor', () => {
     },
     organizationSettings: {
       findUnique: jest.fn()
+    },
+    user: {
+      findFirst: jest.fn()
     }
   };
 
@@ -88,6 +91,16 @@ describe('EvidenceProcessor', () => {
     configMock.get.mockImplementation(defaultConfigImpl);
     prismaMock.evidenceStatusHistory.findFirst.mockResolvedValue(null);
     prismaMock.organizationSettings.findUnique.mockResolvedValue(null);
+    prismaMock.user.findFirst.mockResolvedValue({
+      id: 'user-1',
+      email: 'analyst@example.com',
+      firstName: 'Ana',
+      lastName: 'Lyst',
+      jobTitle: 'Security Analyst',
+      phoneNumber: '+1 (555) 010-0',
+      timezone: 'America/New_York',
+      updatedAt: new Date()
+    });
     queue.reset();
     processor = new EvidenceProcessor(
       prismaMock,
@@ -204,6 +217,48 @@ describe('EvidenceProcessor', () => {
     );
   });
 
+  it('hydrates notifications with fallback contact data when user profile is missing', async () => {
+    antivirusMock.scan.mockResolvedValue({
+      status: EvidenceScanStatus.INFECTED,
+      durationMs: 750,
+      bytesScanned: 2048,
+      engineVersion: 'ClamAV 1.0',
+      signatureVersion: '27123',
+      notes: 'Detected threat',
+      findings: { signature: 'EICAR-Test-Signature' },
+      signature: 'EICAR-Test-Signature'
+    });
+
+    prismaMock.evidenceStatusHistory.create.mockResolvedValue(undefined);
+    prismaMock.user.findFirst.mockResolvedValueOnce(null);
+    metricsMock.incrementCounter.mockClear();
+
+    await invoke({
+      evidenceId: 'evidence-1',
+      scanId: 'scan-contact-fallback',
+      storageUri: 'file:///tmp/evidence/malware.pdf',
+      storageKey: 'malware.pdf',
+      storageProvider: 'LOCAL',
+      requestedBy: 'missing@example.com'
+    });
+
+    expect(metricsMock.incrementCounter).toHaveBeenCalledWith(
+      'notifications.contact.missing_profile',
+      1,
+      expect.objectContaining({ organizationId: 'org-1' })
+    );
+    expect(notificationsMock.notifyEvidence).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestedBy: expect.objectContaining({
+          id: null,
+          email: 'missing@example.com',
+          missingFields: ['profile'],
+          isStale: false
+        })
+      })
+    );
+  });
+
   it('auto-releases quarantined evidence to pending when configured', async () => {
     prismaMock.organizationSettings.findUnique.mockResolvedValue({
       antivirusAutoReleaseStrategy: 'pending'
@@ -288,7 +343,6 @@ describe('EvidenceProcessor', () => {
     );
     expect(notificationsMock.notifyEvidence).toHaveBeenCalled();
   });
-});
 
   it('keeps quarantined evidence when auto-release strategy is manual', async () => {
     configMock.get.mockImplementation((key: string) => {
@@ -437,3 +491,4 @@ describe('EvidenceProcessor', () => {
       })
     );
   });
+});

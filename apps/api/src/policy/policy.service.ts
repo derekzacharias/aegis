@@ -31,6 +31,7 @@ import { CreatePolicyVersionDto } from './dto/create-policy-version.dto';
 import { SubmitPolicyVersionDto } from './dto/submit-policy-version.dto';
 import { ApprovalDecisionDto } from './dto/approval-decision.dto';
 import { UpdatePolicyDto } from './dto/update-policy.dto';
+import { UpdatePolicyVersionDto } from './dto/update-policy-version.dto';
 import {
   PolicyActor,
   PolicyApprovalView,
@@ -509,6 +510,169 @@ export class PolicyService {
 
     const reloaded = await this.loadVersionForActor(versionId, actor);
     return this.toPolicyVersionView(reloaded);
+  }
+
+  async updateVersion(
+    policyId: string,
+    versionId: string,
+    actor: PolicyActor,
+    dto: UpdatePolicyVersionDto
+  ): Promise<PolicyVersionView> {
+    const version = await this.loadVersionForActor(versionId, actor);
+
+    if (version.policyId !== policyId) {
+      throw new ForbiddenException('Version does not belong to the requested policy.');
+    }
+
+    this.ensureCanAuthorPolicy(actor, {
+      ownerId: version.document.ownerId,
+      organizationId: version.document.organizationId
+    });
+
+    if (version.status !== PolicyVersionStatus.DRAFT) {
+      throw new BadRequestException('Only draft versions can be edited.');
+    }
+
+    const updateData: Prisma.PolicyVersionUpdateInput = {};
+
+    if (dto.label !== undefined) {
+      const trimmedLabel = dto.label?.trim() ?? '';
+      updateData.label = trimmedLabel.length > 0 ? trimmedLabel : null;
+    }
+
+    if (dto.notes !== undefined) {
+      const trimmedNotes = dto.notes?.trim() ?? '';
+      updateData.notes = trimmedNotes.length > 0 ? trimmedNotes : null;
+    }
+
+    if (dto.effectiveAt !== undefined) {
+      updateData.effectiveAt = dto.effectiveAt ? new Date(dto.effectiveAt) : null;
+    }
+
+    if (dto.supersedesVersionId !== undefined) {
+      const trimmedSupersedes = dto.supersedesVersionId?.trim() ?? '';
+
+      if (trimmedSupersedes.length === 0) {
+        updateData.supersedesId = null;
+      } else {
+        if (trimmedSupersedes === versionId) {
+          throw new BadRequestException('A version cannot supersede itself.');
+        }
+
+        const supersedes = await this.prisma.policyVersion.findFirst({
+          where: {
+            id: trimmedSupersedes,
+            policyId
+          }
+        });
+
+        if (!supersedes) {
+          throw new BadRequestException(
+            'Superseded version must belong to the same policy.'
+          );
+        }
+
+        updateData.supersedesId = trimmedSupersedes;
+      }
+    }
+
+    let frameworkMappings: NormalizedFrameworkMapping[] | null = null;
+    if (dto.frameworkMappings !== undefined) {
+      frameworkMappings = await this.normalizeFrameworkMappings(
+        actor,
+        dto.frameworkMappings ?? ''
+      );
+    }
+
+    const hasVersionUpdates = Object.keys(updateData).length > 0;
+    const shouldUpdateFrameworks = frameworkMappings !== null;
+
+    if (!hasVersionUpdates && !shouldUpdateFrameworks) {
+      return this.toPolicyVersionView(version);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      if (hasVersionUpdates) {
+        await tx.policyVersion.update({
+          where: { id: versionId },
+          data: updateData
+        });
+      }
+
+      if (shouldUpdateFrameworks) {
+        await tx.policyVersionFramework.deleteMany({
+          where: { policyVersionId: versionId }
+        });
+
+        const mappings = frameworkMappings ?? [];
+        if (mappings.length > 0) {
+          await tx.policyVersionFramework.createMany({
+            data: mappings.map((mapping) => ({
+              policyVersionId: versionId,
+              frameworkId: mapping.frameworkId,
+              controlFamilies: mapping.controlFamilies,
+              controlIds: mapping.controlIds
+            }))
+          });
+        }
+      }
+    });
+
+    const refreshed = await this.loadVersionForActor(versionId, actor);
+    return this.toPolicyVersionView(refreshed);
+  }
+
+  async deleteVersion(
+    policyId: string,
+    versionId: string,
+    actor: PolicyActor
+  ): Promise<PolicyDetail> {
+    const version = await this.loadVersionForActor(versionId, actor);
+
+    if (version.policyId !== policyId) {
+      throw new ForbiddenException('Version does not belong to the requested policy.');
+    }
+
+    this.ensureCanAuthorPolicy(actor, {
+      ownerId: version.document.ownerId,
+      organizationId: version.document.organizationId
+    });
+
+    if (
+      version.status !== PolicyVersionStatus.DRAFT &&
+      version.status !== PolicyVersionStatus.REJECTED
+    ) {
+      throw new BadRequestException(
+        'Only draft or rejected versions can be deleted.'
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.policyApproval.deleteMany({
+        where: { policyVersionId: versionId }
+      });
+
+      await tx.policyVersionFramework.deleteMany({
+        where: { policyVersionId: versionId }
+      });
+
+      await tx.policyVersion.delete({
+        where: { id: versionId }
+      });
+
+      await this.recordAudit(tx, {
+        policyId,
+        actorId: actor.id,
+        action: PolicyAuditAction.VERSION_ARCHIVED,
+        metadata: {
+          reason: 'Version deleted by author',
+          versionId
+        }
+      });
+    });
+
+    const policy = await this.findPolicyOrThrow(policyId, actor.organizationId);
+    return this.toPolicyDetail(policy);
   }
 
   async submitForApproval(

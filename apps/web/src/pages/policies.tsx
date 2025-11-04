@@ -1,4 +1,10 @@
 import {
+  AlertDialog,
+  AlertDialogBody,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogOverlay,
   Badge,
   Box,
   Button,
@@ -8,6 +14,7 @@ import {
   Divider,
   Flex,
   FormControl,
+  FormHelperText,
   FormLabel,
   Grid,
   GridItem,
@@ -41,9 +48,10 @@ import {
   FiFlag,
   FiPlus,
   FiShield,
+  FiTrash2,
   FiUsers
 } from 'react-icons/fi';
-import { ChangeEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import dayjs from 'dayjs';
 import {
   PolicySummary,
@@ -57,7 +65,9 @@ import {
   usePolicySummaries,
   useSubmitPolicyVersion,
   useUpdatePolicy,
-  useUploadPolicyVersion
+  useUpdatePolicyVersion,
+  useUploadPolicyVersion,
+  useDeletePolicyVersion
 } from '../hooks/use-policies';
 import { useFrameworks } from '../hooks/use-frameworks';
 import { usePolicyActor } from '../policies/policy-actor-context';
@@ -100,6 +110,12 @@ type NewVersionFormState = {
   supersedesVersionId: string;
   file: File | null;
   frameworkMappings: FrameworkMappingFormState[];
+};
+
+type EditVersionFormState = {
+  label: string;
+  notes: string;
+  effectiveDate: string;
 };
 
 type SubmitVersionFormState = {
@@ -148,6 +164,9 @@ const PoliciesPage = () => {
   const { actor, setActor, participants, refreshParticipants } = usePolicyActor();
   const actorId = actor?.id;
   const { data: frameworks = [] } = useFrameworks();
+  const canAuthorPolicies =
+    actor?.role === 'ADMIN' || actor?.role === 'ANALYST';
+  const canReassignOwner = actor?.role === 'ADMIN';
 
   const {
     isOpen: isCreateOpen,
@@ -191,7 +210,7 @@ const PoliciesPage = () => {
     category: '',
     tags: '',
     reviewCadenceDays: '365',
-    ownerId: '',
+    ownerId: actor?.id ?? '',
     retentionPeriodDays: '',
     retentionReason: '',
     retentionExpiresAt: ''
@@ -241,13 +260,36 @@ const PoliciesPage = () => {
   } = usePolicyDetail(selectedPolicyId ?? undefined, actorId);
 
   useEffect(() => {
-    if (participants && !newPolicyForm.ownerId) {
-      const defaultOwner = participants.authors[0];
-      if (defaultOwner) {
-        setNewPolicyForm((prev) => ({ ...prev, ownerId: defaultOwner.id }));
-      }
+    if (!participants) {
+      return;
     }
-  }, [participants, newPolicyForm.ownerId]);
+
+    if (canReassignOwner) {
+      setNewPolicyForm((prev) => {
+        if (prev.ownerId) {
+          return prev;
+        }
+
+        const fallbackOwner =
+          participants.authors.find((user) => user.id === actor?.id) ??
+          participants.authors[0];
+
+        return fallbackOwner ? { ...prev, ownerId: fallbackOwner.id } : prev;
+      });
+      return;
+    }
+
+    if (!canAuthorPolicies || !actor?.id) {
+      return;
+    }
+
+    setNewPolicyForm((prev) => {
+      if (prev.ownerId === actor.id) {
+        return prev;
+      }
+      return { ...prev, ownerId: actor.id };
+    });
+  }, [participants, actor?.id, canAuthorPolicies, canReassignOwner]);
 
   const createPolicy = useCreatePolicy(actorId);
   const uploadVersion = useUploadPolicyVersion(actorId);
@@ -281,13 +323,17 @@ const PoliciesPage = () => {
   };
 
   const resetNewPolicyForm = () => {
+    const defaultOwnerId = canReassignOwner
+      ? participants?.authors[0]?.id ?? actor?.id ?? ''
+      : actor?.id ?? '';
+
     setNewPolicyForm({
       title: '',
       description: '',
       category: '',
       tags: '',
       reviewCadenceDays: '365',
-      ownerId: participants?.authors[0]?.id ?? '',
+      ownerId: defaultOwnerId,
       retentionPeriodDays: '',
       retentionReason: '',
       retentionExpiresAt: ''
@@ -297,6 +343,15 @@ const PoliciesPage = () => {
   const handleCreatePolicy = async () => {
     if (!actorId) {
       toast({ title: 'Select an actor to create policies.', status: 'warning' });
+      return;
+    }
+
+    if (!canAuthorPolicies) {
+      toast({
+        title: 'Actor lacks author permissions',
+        description: 'Switch to an analyst or administrator to create policies.',
+        status: 'warning'
+      });
       return;
     }
 
@@ -324,13 +379,15 @@ const PoliciesPage = () => {
         return;
       }
 
+      const ownerId = canReassignOwner ? newPolicyForm.ownerId || actorId : actorId;
+
       const payload = {
         title: newPolicyForm.title.trim(),
         description: newPolicyForm.description.trim() || undefined,
         category: newPolicyForm.category.trim() || undefined,
         tags: normalizeTags(newPolicyForm.tags),
         reviewCadenceDays: reviewCadence,
-        ownerId: newPolicyForm.ownerId || undefined,
+        ownerId,
         retentionPeriodDays: retentionPeriod,
         retentionReason: newPolicyForm.retentionReason.trim() || undefined,
         retentionExpiresAt: newPolicyForm.retentionExpiresAt
@@ -344,9 +401,14 @@ const PoliciesPage = () => {
       resetNewPolicyForm();
       onCloseCreate();
     } catch (error) {
+      const responseMessage =
+        (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
+
       toast({
         title: 'Unable to create policy',
-        description: error instanceof Error ? error.message : 'Unknown error',
+        description:
+          responseMessage ??
+          (error instanceof Error ? error.message : 'Unknown error'),
         status: 'error'
       });
     }
@@ -769,7 +831,7 @@ const PoliciesPage = () => {
             leftIcon={<Icon as={FiPlus} />}
             colorScheme="brand"
             onClick={onOpenCreate}
-            isDisabled={!actorId}
+            isDisabled={!actorId || !canAuthorPolicies}
           >
             New Policy
           </Button>
@@ -1115,6 +1177,7 @@ const PoliciesPage = () => {
               <FormControl>
                 <FormLabel>Owner</FormLabel>
                 <Select
+                  isDisabled={!canReassignOwner}
                   value={newPolicyForm.ownerId}
                   onChange={(event) => setNewPolicyForm((prev) => ({ ...prev, ownerId: event.target.value }))}
                 >
@@ -1124,6 +1187,11 @@ const PoliciesPage = () => {
                     </option>
                   ))}
                 </Select>
+                {!canReassignOwner && (
+                  <FormHelperText>
+                    Policies created by this actor will be owned by them. Switch to an administrator to assign a different owner.
+                  </FormHelperText>
+                )}
               </FormControl>
             </Stack>
           </ModalBody>

@@ -21,11 +21,38 @@ import {
 } from '@chakra-ui/react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import dayjs from 'dayjs';
-import { UserRole } from '@compliance/shared';
+import { UserProfile, UserRole } from '@compliance/shared';
 import useProfile from '../../hooks/use-profile';
 import useAuth from '../../hooks/use-auth';
 import { formatPhoneNumber } from '../../utils/phone';
 import { getDefaultTimezone, getTimezoneOptions } from '../../utils/timezones';
+
+type ProfileFormState = {
+  firstName: string;
+  lastName: string;
+  jobTitle: string;
+  phoneNumber: string;
+  timezone: string;
+  avatarUrl: string;
+  bio: string;
+};
+
+type ProfileUpdatePayload = Partial<
+  Pick<UserProfile, 'firstName' | 'lastName' | 'jobTitle' | 'phoneNumber' | 'timezone' | 'avatarUrl' | 'bio'>
+>;
+
+const toProfileUpdatePayload = (values: ProfileFormState): ProfileUpdatePayload =>
+  (Object.entries(values) as Array<[keyof ProfileFormState, string]>).reduce<ProfileUpdatePayload>(
+    (acc, [key, value]) => {
+      const trimmed = value.trim();
+      const fieldKey = key as keyof ProfileUpdatePayload;
+      return {
+        ...acc,
+        [fieldKey]: trimmed.length === 0 ? null : trimmed
+      };
+    },
+    {} as ProfileUpdatePayload
+  );
 
 const formatDateTime = (value: string | null | undefined) => {
   if (!value) {
@@ -66,7 +93,7 @@ const ProfileSettings = () => {
   const toast = useToast();
   const { profile, updateProfile, changePassword, loadAudits, audits, isUpdating, updateRole } = useProfile();
   const { user } = useAuth();
-  const [form, setForm] = useState(() => ({
+  const [form, setForm] = useState<ProfileFormState>(() => ({
     firstName: '',
     lastName: '',
     jobTitle: '',
@@ -108,7 +135,8 @@ const ProfileSettings = () => {
     setProfileError(null);
 
     try {
-      await updateProfile(form);
+      const payload = toProfileUpdatePayload(form);
+      await updateProfile(payload);
       toast({
         title: 'Profile updated',
         status: 'success',
