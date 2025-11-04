@@ -13,12 +13,12 @@ import {
   JobQueue,
   JobRecord,
   reportStore,
+  ReportArtifactRecord,
   ReportFormat,
   ReportJobPayload,
   ReportJobResult,
   ReportJobView,
-  ReportStoreType,
-  ReportArtifactRecord
+  ReportStoreType
 } from '@compliance/shared';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -133,7 +133,14 @@ export class ReportingService {
       requestedBy: job.payload.requestedBy,
       artifactIds: artifacts.map((artifact) => artifact.id),
       downloadUrl: pdfArtifact ? `${API_PREFIX}/reports/${job.id}/download` : null,
-      error: job.error
+      error: job.error,
+      artifacts: artifacts.map((artifact) => ({
+        id: artifact.id,
+        format: artifact.format,
+        filename: artifact.filename,
+        createdAt: artifact.createdAt,
+        metadata: artifact.metadata
+      }))
     };
   }
 
