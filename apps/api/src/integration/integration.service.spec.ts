@@ -107,6 +107,41 @@ describe('IntegrationService', () => {
     const otherOrgTasks = service.listTasks('JIRA', 'org-2');
     expect(otherOrgTasks).toHaveLength(0);
   });
+
+  it('matches webhook deliveries to the connection that signed the payload', async () => {
+    const secondaryOrg = 'org-2';
+    await service.list(secondaryOrg);
+
+    const primary = await service.detail(ORGANIZATION_ID, 'JIRA');
+    const secondary = await service.detail(secondaryOrg, 'JIRA');
+
+    expect(primary.webhook.secret).not.toEqual(secondary.webhook.secret);
+
+    const payload = {
+      issue: {
+        id: '321',
+        fields: {
+          summary: 'Secondary org sync',
+          status: { name: 'ToDo' },
+          priority: { name: 'Medium' },
+          project: { key: 'FEDRAMP' }
+        }
+      }
+    } as Record<string, unknown>;
+
+    const signature = createHmac('sha256', secondary.webhook.secret ?? '')
+      .update(JSON.stringify(payload))
+      .digest('hex');
+
+    await service.ingestWebhook('JIRA', payload, signature);
+
+    const org2Tasks = service.listTasks('JIRA', secondaryOrg);
+    expect(org2Tasks).toHaveLength(1);
+    expect(org2Tasks[0].organizationId).toEqual(secondaryOrg);
+
+    const org1Tasks = service.listTasks('JIRA', ORGANIZATION_ID);
+    expect(org1Tasks).toHaveLength(0);
+  });
 });
 
 function createPrismaMock() {
@@ -151,10 +186,13 @@ function createPrismaMock() {
       findMany: jest.fn(
         async ({ where }: { where?: Partial<PrismaIntegrationConnection> }) => {
           const list = Array.from(store.values()).filter((record) => {
-            if (!where?.organizationId) {
-              return true;
+            if (where?.organizationId && record.organizationId !== where.organizationId) {
+              return false;
             }
-            return record.organizationId === where.organizationId;
+            if (where?.provider && record.provider !== where.provider) {
+              return false;
+            }
+            return true;
           });
           return list.map(clone);
         }

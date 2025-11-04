@@ -181,20 +181,27 @@ export class IntegrationService {
     payload: Record<string, unknown>,
     signature: string | undefined
   ) {
-    const connection = await this.prisma.integrationConnection.findFirst({
+    const connections = await this.prisma.integrationConnection.findMany({
       where: { provider }
     });
 
-    if (!connection) {
+    if (!connections.length) {
       throw new NotFoundException(`Integration ${provider} not configured`);
     }
 
-    const secret = connection.webhookSecret;
-    if (!secret) {
-      throw new BadRequestException('Webhook secret not configured');
+    if (!signature) {
+      throw new BadRequestException('Missing webhook signature');
     }
 
-    if (!signature || !this.verifySignature(secret, payload, signature)) {
+    const connection = connections.find((candidate) => {
+      const secret = candidate.webhookSecret;
+      if (!secret) {
+        return false;
+      }
+      return this.verifySignature(secret, payload, signature);
+    });
+
+    if (!connection) {
       throw new BadRequestException('Invalid webhook signature');
     }
 

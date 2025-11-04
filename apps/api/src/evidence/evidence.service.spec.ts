@@ -55,8 +55,9 @@ const storageService = {
   getLocalDirectory: jest.fn().mockReturnValue('/tmp/evidence'),
   getObjectMetadata: jest.fn(),
   createUploadToken: jest.fn(),
+  createDownloadStream: jest.fn(),
   resolveLocalPath: jest.fn((key: string) => `/tmp/evidence/${key}`)
-} as unknown as EvidenceStorageService;
+} as unknown as jest.Mocked<EvidenceStorageService>;
 
 const queue = createJobQueue();
 

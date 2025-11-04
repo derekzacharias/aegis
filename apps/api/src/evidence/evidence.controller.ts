@@ -48,6 +48,74 @@ export class EvidenceController {
     return this.evidenceService.get(user.organizationId, evidenceId);
   }
 
+  @Get(':id/preview')
+  async preview(
+    @Param('id') evidenceId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Res() res: Response
+  ): Promise<void> {
+    const file = await this.evidenceService.openFileStream(user, evidenceId);
+    const safeFilename = (file.filename ?? 'evidence').replace(/"/g, '');
+
+    res.setHeader('Content-Type', file.contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${safeFilename}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    if (typeof file.contentLength === 'number') {
+      res.setHeader('Content-Length', file.contentLength.toString());
+    }
+
+    file.stream.on('error', () => {
+      if (!res.headersSent) {
+        res.status(500).end();
+      } else {
+        res.end();
+      }
+    });
+
+    res.on('close', () => {
+      const maybeDestroy = file.stream as { destroy?: () => void };
+      if (typeof maybeDestroy.destroy === 'function') {
+        maybeDestroy.destroy();
+      }
+    });
+
+    file.stream.pipe(res);
+  }
+
+  @Get(':id/download')
+  async download(
+    @Param('id') evidenceId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Res() res: Response
+  ): Promise<void> {
+    const file = await this.evidenceService.openFileStream(user, evidenceId);
+    const safeFilename = (file.filename ?? 'evidence').replace(/"/g, '');
+
+    res.setHeader('Content-Type', file.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    if (typeof file.contentLength === 'number') {
+      res.setHeader('Content-Length', file.contentLength.toString());
+    }
+
+    file.stream.on('error', () => {
+      if (!res.headersSent) {
+        res.status(500).end();
+      } else {
+        res.end();
+      }
+    });
+
+    res.on('close', () => {
+      const maybeDestroy = file.stream as { destroy?: () => void };
+      if (typeof maybeDestroy.destroy === 'function') {
+        maybeDestroy.destroy();
+      }
+    });
+
+    file.stream.pipe(res);
+  }
+
   @Roles(UserRole.ANALYST, UserRole.ADMIN)
   @Post()
   async quickCreate(

@@ -162,6 +162,72 @@ export class EvidenceService {
     return this.toEvidenceRecord(item);
   }
 
+  async openFileStream(
+    user: AuthenticatedUser,
+    evidenceId: string
+  ): Promise<{
+    filename: string;
+    contentType: string;
+    contentLength?: number;
+    stream: NodeJS.ReadableStream;
+  }> {
+    const evidence = await this.prisma.evidenceItem.findUnique({
+      where: { id: evidenceId },
+      select: {
+        id: true,
+        organizationId: true,
+        storageKey: true,
+        storageProvider: true,
+        originalFilename: true,
+        contentType: true,
+        fileSize: true,
+        ingestionStatus: true,
+        status: true,
+        lastScanStatus: true
+      }
+    });
+
+    if (!evidence || evidence.organizationId !== user.organizationId) {
+      throw new NotFoundException('Evidence not found');
+    }
+
+    if (
+      evidence.ingestionStatus === EvidenceIngestionStatus.QUARANTINED ||
+      evidence.status === EvidenceStatus.QUARANTINED
+    ) {
+      throw new ForbiddenException('Evidence is quarantined and cannot be accessed.');
+    }
+
+    if (evidence.lastScanStatus === EvidenceScanStatus.INFECTED) {
+      throw new ForbiddenException('Evidence failed antivirus checks and cannot be accessed.');
+    }
+
+    try {
+      const handle = await this.storage.createDownloadStream(
+        evidence.storageProvider,
+        evidence.storageKey
+      );
+
+      return {
+        filename: evidence.originalFilename,
+        contentType: handle.contentType ?? evidence.contentType ?? 'application/octet-stream',
+        contentLength: handle.contentLength ?? evidence.fileSize ?? undefined,
+        stream: handle.stream
+      };
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException | { name?: string };
+      if (err && (err['code'] === 'ENOENT' || err['name'] === 'NoSuchKey')) {
+        throw new NotFoundException('Evidence file not found');
+      }
+
+      this.logger.error(
+        `Failed to stream evidence ${evidence.id}: ${(error as Error).message}`,
+        (error as Error).stack
+      );
+      throw new InternalServerErrorException('Unable to read evidence file');
+    }
+  }
+
   async createSimple(
     user: AuthenticatedUser,
     payload: CreateEvidenceInput

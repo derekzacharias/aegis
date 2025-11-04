@@ -559,6 +559,68 @@ const EvidencePage = () => {
     metadataModal.onClose();
   };
 
+  const isEvidenceAccessible = useCallback(
+    (record: EvidenceRecord) =>
+      record.ingestionStatus !== 'QUARANTINED' &&
+      record.status !== 'QUARANTINED' &&
+      record.lastScanStatus !== EvidenceScanStatus.INFECTED,
+    []
+  );
+
+  const openEvidenceUrl = useCallback((record: EvidenceRecord, action: 'preview' | 'download') => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      return;
+    }
+
+    const anchor = document.createElement('a');
+    anchor.href = `/api/evidence/${record.id}/${action}`;
+    anchor.target = '_blank';
+    anchor.rel = 'noopener noreferrer';
+    anchor.style.display = 'none';
+
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+  }, []);
+
+  const handlePreview = useCallback(
+    (record: EvidenceRecord) => {
+      if (!isEvidenceAccessible(record)) {
+        toast({
+          title: 'Preview unavailable',
+          description:
+            record.lastScanStatus === EvidenceScanStatus.INFECTED
+              ? 'This file failed antivirus checks and cannot be opened.'
+              : 'This evidence item is quarantined.',
+          status: 'warning'
+        });
+        return;
+      }
+
+      openEvidenceUrl(record, 'preview');
+    },
+    [isEvidenceAccessible, openEvidenceUrl, toast]
+  );
+
+  const handleDownload = useCallback(
+    (record: EvidenceRecord) => {
+      if (!isEvidenceAccessible(record)) {
+        toast({
+          title: 'Download unavailable',
+          description:
+            record.lastScanStatus === EvidenceScanStatus.INFECTED
+              ? 'This file failed antivirus checks and cannot be downloaded.'
+              : 'This evidence item is quarantined.',
+          status: 'warning'
+        });
+        return;
+      }
+
+      openEvidenceUrl(record, 'download');
+    },
+    [isEvidenceAccessible, openEvidenceUrl, toast]
+  );
+
   return (
     <VStack align="stretch" spacing={6}>
       <HStack
@@ -647,6 +709,13 @@ const EvidencePage = () => {
       <SimpleGrid columns={{ base: 1, md: 2, xl: 3 }} spacing={5}>
         {filteredEvidence.map((item) => {
           const meta = statusMeta[item.status];
+          const isAccessible = isEvidenceAccessible(item);
+          const accessBlockedReason =
+            item.lastScanStatus === EvidenceScanStatus.INFECTED
+              ? 'Blocked: failed antivirus scan.'
+              : item.ingestionStatus === 'QUARANTINED' || item.status === 'QUARANTINED'
+                ? 'Blocked: evidence is quarantined.'
+                : '';
           return (
             <Box
               key={item.id}
@@ -833,8 +902,22 @@ const EvidencePage = () => {
               </VStack>
               <HStack justify="space-between">
                 <ButtonGroup size="sm" variant="ghost" colorScheme="brand">
-                  <Button leftIcon={<FiEye />}>Preview</Button>
-                  <Button leftIcon={<FiDownload />}>Download</Button>
+                  <Button
+                    leftIcon={<FiEye />}
+                    onClick={() => handlePreview(item)}
+                    isDisabled={!isAccessible}
+                    title={!isAccessible ? accessBlockedReason : undefined}
+                  >
+                    Preview
+                  </Button>
+                  <Button
+                    leftIcon={<FiDownload />}
+                    onClick={() => handleDownload(item)}
+                    isDisabled={!isAccessible}
+                    title={!isAccessible ? accessBlockedReason : undefined}
+                  >
+                    Download
+                  </Button>
                 </ButtonGroup>
                 <Button
                   size="sm"

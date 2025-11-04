@@ -2,8 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EvidenceStorageProvider } from '@prisma/client';
 import { randomBytes } from 'crypto';
-import { promises as fs } from 'fs';
+import { createReadStream, promises as fs } from 'fs';
 import path from 'path';
+import type { Readable } from 'stream';
 
 type StorageMode = 's3' | 'local';
 
@@ -11,6 +12,7 @@ type AwsModules = {
   S3Client: new (...args: unknown[]) => unknown;
   PutObjectCommand: new (...args: unknown[]) => unknown;
   HeadObjectCommand: new (...args: unknown[]) => unknown;
+  GetObjectCommand: new (...args: unknown[]) => unknown;
   getSignedUrl: (
     client: unknown,
     command: unknown,
@@ -38,6 +40,12 @@ export interface PresignRequest {
   sizeInBytes: number;
   checksum?: string | null;
   authToken: string;
+}
+
+export interface DownloadStreamHandle {
+  stream: Readable;
+  contentLength?: number;
+  contentType?: string;
 }
 
 @Injectable()
@@ -188,6 +196,53 @@ export class EvidenceStorageService {
     };
   }
 
+  async createDownloadStream(
+    provider: EvidenceStorageProvider,
+    storageKey: string
+  ): Promise<DownloadStreamHandle> {
+    if (provider === EvidenceStorageProvider.LOCAL) {
+      const filePath = this.resolveLocalPath(storageKey);
+      const stats = await fs.stat(filePath);
+
+      return {
+        stream: createReadStream(filePath),
+        contentLength: stats.size
+      };
+    }
+
+    const { client, modules } = await this.getS3Client();
+    const command = new modules.GetObjectCommand({
+      Bucket: this.bucket,
+      Key: storageKey
+    });
+
+    const response = (await (client as {
+      send: (command: unknown) => Promise<Record<string, unknown>>;
+    }).send(command)) as Record<string, unknown>;
+
+    const body = response['Body'] as Readable | undefined;
+    if (!body || typeof (body as { pipe?: unknown }).pipe !== 'function') {
+      throw new Error('S3 object body missing');
+    }
+
+    const rawLength = response['ContentLength'];
+    const rawType = response['ContentType'];
+
+    const contentLength =
+      typeof rawLength === 'number'
+        ? rawLength
+        : typeof rawLength === 'bigint'
+          ? Number(rawLength)
+          : undefined;
+    const contentType = typeof rawType === 'string' ? (rawType as string) : undefined;
+
+    return {
+      stream: body,
+      contentLength,
+      contentType
+    };
+  }
+
   private normalizeEmpty(value: string | undefined): string | undefined {
     if (!value) {
       return undefined;
@@ -202,7 +257,10 @@ export class EvidenceStorageService {
   }> {
     if (!this.awsModulesLoaded) {
       try {
-        const [{ S3Client, PutObjectCommand, HeadObjectCommand }, { getSignedUrl }] = await Promise.all([
+        const [
+          { S3Client, PutObjectCommand, HeadObjectCommand, GetObjectCommand },
+          { getSignedUrl }
+        ] = await Promise.all([
           import('@aws-sdk/client-s3'),
           import('@aws-sdk/s3-request-presigner')
         ]);
@@ -210,6 +268,7 @@ export class EvidenceStorageService {
           S3Client: S3Client as AwsModules['S3Client'],
           PutObjectCommand: PutObjectCommand as AwsModules['PutObjectCommand'],
           HeadObjectCommand: HeadObjectCommand as AwsModules['HeadObjectCommand'],
+          GetObjectCommand: GetObjectCommand as AwsModules['GetObjectCommand'],
           getSignedUrl: getSignedUrl as AwsModules['getSignedUrl']
         };
         this.awsModulesLoaded = true;
