@@ -126,6 +126,162 @@ function runCommandCapture(command, args, options = {}) {
   });
 }
 
+function readCommandOutput(command, args) {
+  try {
+    const result = spawnSync(command, args, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    if (result.error || result.status !== 0) {
+      return null;
+    }
+    const stdout = result.stdout?.trim();
+    const stderr = result.stderr?.trim();
+    return stdout || stderr || null;
+  } catch {
+    return null;
+  }
+}
+
+function dockerComposeAvailable() {
+  if (commandExists('docker-compose')) {
+    return true;
+  }
+
+  const result = spawnSync('docker', ['compose', 'version'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  if (result.error) {
+    return false;
+  }
+
+  return result.status === 0;
+}
+
+function dockerComposeVersion() {
+  if (commandExists('docker-compose')) {
+    return readCommandOutput('docker-compose', ['--version']);
+  }
+
+  return readCommandOutput('docker', ['compose', 'version']);
+}
+
+async function ensureNpmAvailable() {
+  if (!commandExists('npm')) {
+    log('npm is required but was not found. Install Node.js (https://nodejs.org/) to continue.');
+    process.exit(1);
+  }
+
+  const npmVersion = readCommandOutput('npm', ['--version']);
+  if (npmVersion) {
+    log(`Detected npm version ${npmVersion}.`);
+  }
+}
+
+async function installDockerAndCompose() {
+  log('Docker CLI not found. Attempting to install Docker and Docker Compose...');
+
+  if (process.platform === 'linux') {
+    const downloader = commandExists('curl')
+      ? 'curl -fsSL https://get.docker.com | sh'
+      : commandExists('wget')
+          ? 'wget -qO- https://get.docker.com | sh'
+          : null;
+
+    if (!downloader) {
+      log(
+        'Unable to download the Docker installation script (curl/wget missing). Install Docker manually: https://docs.docker.com/get-docker/'
+      );
+      process.exit(1);
+    }
+
+    log('Downloading and installing Docker via the official convenience script (may prompt for your password)...');
+    try {
+      await runCommandStreaming('install-docker', 'sh', ['-c', downloader], {
+        env: process.env
+      });
+    } catch (error) {
+      log(
+        'Automatic Docker installation failed. Install Docker manually by following https://docs.docker.com/get-docker/.'
+      );
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (process.platform === 'darwin') {
+    log('Install Docker Desktop for Mac from https://www.docker.com/products/docker-desktop/ and rerun this script.');
+    process.exit(1);
+  }
+
+  if (process.platform === 'win32') {
+    log('Install Docker Desktop for Windows from https://www.docker.com/products/docker-desktop/ and rerun this script.');
+    process.exit(1);
+  }
+
+  log('Install Docker for your platform by following https://docs.docker.com/get-docker/ and rerun this script.');
+  process.exit(1);
+}
+
+async function ensureDockerComposeAvailable() {
+  if (dockerComposeAvailable()) {
+    return;
+  }
+
+  if (process.platform === 'linux' && fs.existsSync('/etc/debian_version')) {
+    const prefix = commandExists('sudo') ? 'sudo ' : '';
+    const installCommand = `${prefix}apt-get update && ${prefix}apt-get install -y docker-compose-plugin`;
+    log('Docker Compose was not detected. Installing docker-compose-plugin via apt-get...');
+    try {
+      await runCommandStreaming('install-docker-compose', 'sh', ['-c', installCommand], {
+        env: process.env
+      });
+      return;
+    } catch (error) {
+      log('Failed to install Docker Compose automatically.');
+    }
+  } else if (process.platform === 'darwin') {
+    log('Docker Compose is bundled with Docker Desktop. Install Docker Desktop for Mac and rerun this script.');
+  } else if (process.platform === 'win32') {
+    log('Docker Compose is bundled with Docker Desktop. Install Docker Desktop for Windows and rerun this script.');
+  } else {
+    log('Install Docker Compose for your platform: https://docs.docker.com/compose/install/');
+  }
+
+  log('Docker Compose is required but still unavailable. Install it manually and rerun this script.');
+  process.exit(1);
+}
+
+async function ensureDockerAvailable() {
+  if (!commandExists('docker')) {
+    await installDockerAndCompose();
+  }
+
+  if (!commandExists('docker')) {
+    log('Docker CLI is still unavailable after installation attempt. Install Docker manually from https://docs.docker.com/get-docker/.');
+    process.exit(1);
+  }
+
+  const dockerVersion = readCommandOutput('docker', ['--version']);
+  if (dockerVersion) {
+    log(`Detected ${dockerVersion}.`);
+  }
+
+  if (!dockerComposeAvailable()) {
+    await ensureDockerComposeAvailable();
+  }
+
+  const composeVersion = dockerComposeVersion();
+  if (composeVersion) {
+    log(`Detected ${composeVersion}.`);
+  } else {
+    log('Docker Compose is required but not available. Install it from https://docs.docker.com/compose/install/ and rerun this script.');
+    process.exit(1);
+  }
+}
+
 async function ensureDependencies() {
   const marker = path.join(rootDir, 'node_modules', '.bin', 'ts-node');
   if (fs.existsSync(marker)) {
@@ -377,6 +533,8 @@ async function main() {
   log(`Run logs will be stored in ${runDir}`);
 
   try {
+    await ensureNpmAvailable();
+    await ensureDockerAvailable();
     await ensureDependencies();
     await ensurePrismaClient();
     await ensurePostgres();
