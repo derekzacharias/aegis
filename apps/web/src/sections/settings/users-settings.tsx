@@ -1,34 +1,62 @@
 import {
+  Badge,
   Box,
   Button,
   Card,
   CardBody,
   CardHeader,
+  Checkbox,
+  Divider,
   FormControl,
   FormLabel,
   Heading,
+  HStack,
+  Icon,
+  IconButton,
   Input,
   InputGroup,
   InputRightElement,
+  Modal,
+  ModalBody,
+  ModalCloseButton,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+  ModalOverlay,
   Select,
   SimpleGrid,
   Spinner,
+  Stack,
   Table,
   Tbody,
   Td,
   Text,
   Th,
   Thead,
+  Tooltip,
   Tr,
   VStack,
+  useDisclosure,
   useToast
 } from '@chakra-ui/react';
 import { useEffect, useMemo, useState } from 'react';
 import dayjs from 'dayjs';
 import axios from 'axios';
 import { UserProfile, UserRole } from '@compliance/shared';
+import { FiCopy, FiDownload, FiLock, FiRefreshCcw, FiTrash2, FiUserPlus } from 'react-icons/fi';
 import useAuth from '../../hooks/use-auth';
-import { CreateUserInput, useCreateUser, useUsers } from '../../hooks/use-users';
+import {
+  CreateUserInput,
+  useBulkUpdateRoles,
+  useCreateInvite,
+  useCreateUser,
+  useExportUsersCsv,
+  useForcePasswordReset,
+  useRevokeInvite,
+  useUserInvites,
+  useUsers
+} from '../../hooks/use-users';
+import { formatPhoneNumber } from '../../utils/phone';
 
 const defaultForm: CreateUserInput = {
   email: '',
@@ -38,6 +66,12 @@ const defaultForm: CreateUserInput = {
   jobTitle: '',
   phoneNumber: '',
   role: 'ANALYST'
+};
+
+const defaultInviteForm = {
+  email: '',
+  role: 'ANALYST' as UserRole,
+  expiresInHours: 72
 };
 
 const roleOptions: Array<{ label: string; value: UserRole }> = [
@@ -52,6 +86,13 @@ const formatDate = (value: string | null | undefined) => {
     return '—';
   }
   return dayjs(value).format('MMM D, YYYY');
+};
+
+const formatDateTime = (value: string | null | undefined) => {
+  if (!value) {
+    return '—';
+  }
+  return dayjs(value).format('MMM D, YYYY h:mm A');
 };
 
 const getErrorMessage = (error: unknown): string => {
@@ -82,12 +123,30 @@ const UsersSettings = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
   const [form, setForm] = useState<CreateUserInput>(defaultForm);
+  const [inviteForm, setInviteForm] = useState(defaultInviteForm);
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [bulkRole, setBulkRole] = useState<UserRole>('ANALYST');
+  const tokenModal = useDisclosure();
+  const [tokenDetails, setTokenDetails] = useState<{
+    token: string;
+    title: string;
+    subtitle: string;
+  } | null>(null);
   const { data: users = [], isLoading, isFetching, error } = useUsers(isAdmin);
+  const { data: invites = [], isLoading: isInvitesLoading, isFetching: isInvitesFetching } =
+    useUserInvites(isAdmin);
   const createUser = useCreateUser();
+  const createInvite = useCreateInvite();
+  const revokeInvite = useRevokeInvite();
+  const forcePasswordReset = useForcePasswordReset();
+  const bulkUpdateRoles = useBulkUpdateRoles();
+  const exportCsv = useExportUsersCsv();
 
   useEffect(() => {
     if (!isAdmin) {
       setForm(defaultForm);
+      setInviteForm(defaultInviteForm);
+      setSelectedUserIds([]);
     }
   }, [isAdmin]);
 
@@ -102,9 +161,33 @@ const UsersSettings = () => {
       const value = event.target.value;
       setForm((prev) => ({
         ...prev,
-        [field]: field === 'role' ? (value as UserRole) : value
+        [field]:
+          field === 'role'
+            ? (value as UserRole)
+            : field === 'phoneNumber'
+              ? formatPhoneNumber(value)
+              : value
       }));
     };
+
+  const handleInviteChange =
+    (field: keyof typeof inviteForm) =>
+    (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      const value = event.target.value;
+      setInviteForm((prev) => ({
+        ...prev,
+        [field]:
+          field === 'role'
+            ? (value as UserRole)
+            : field === 'expiresInHours'
+              ? Number.parseInt(value, 10) || prev.expiresInHours
+              : value
+      }));
+    };
+
+  const resetInviteForm = () => {
+    setInviteForm(defaultInviteForm);
+  };
 
   const resetForm = () => {
     setForm({
@@ -316,6 +399,7 @@ const UsersSettings = () => {
                   <Tr>
                     <Th>Name</Th>
                     <Th>Email</Th>
+                    <Th>Phone</Th>
                     <Th>Role</Th>
                     <Th>Last Login</Th>
                     <Th>Created</Th>
@@ -324,17 +408,19 @@ const UsersSettings = () => {
                 <Tbody>
                   {users.length === 0 && (
                     <Tr>
-                      <Td colSpan={5}>
+                      <Td colSpan={6}>
                         <Text color="gray.500">No users found for this tenant.</Text>
                       </Td>
                     </Tr>
                   )}
                   {users.map((item: UserProfile) => {
                     const fullName = [item.firstName, item.lastName].filter(Boolean).join(' ');
+                    const formattedPhone = formatPhoneNumber(item.phoneNumber ?? '');
                     return (
                       <Tr key={item.id}>
                         <Td>{fullName || '—'}</Td>
                         <Td>{item.email}</Td>
+                        <Td>{formattedPhone || '—'}</Td>
                         <Td>{item.role.replace('_', ' ')}</Td>
                         <Td>{formatDate(item.lastLoginAt)}</Td>
                         <Td>{formatDate(item.createdAt)}</Td>

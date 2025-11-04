@@ -17,6 +17,7 @@ import {
   FiSettings
 } from 'react-icons/fi';
 import { NavLink, useLocation } from 'react-router-dom';
+import AegisMark from './aegis-mark';
 
 type NavItem = {
   label: string;
@@ -37,7 +38,6 @@ const navItems: NavItem[] = [
 const AppSidebar = () => {
   const location = useLocation();
   const bg = useColorModeValue('gray.100', 'gray.800');
-  const accent = useColorModeValue('brand.500', 'brand.400');
 
   return (
     <Box
@@ -53,7 +53,7 @@ const AppSidebar = () => {
       py={8}
     >
       <Flex align="center" mb={10} gap={3}>
-        <Box w={2} h={10} bg={accent} borderRadius="full" />
+        <AegisMark boxSize={10} />
         <VStack align="start" spacing={0}>
           <Text fontWeight="bold" fontSize="lg">
             Aegis

@@ -97,6 +97,7 @@ describe('ProfileSettings', () => {
     renderComponent();
 
     expect(screen.getByLabelText(/First name/i)).toHaveValue('Cyra');
+    expect(screen.getByLabelText(/Timezone/i)).toHaveValue('America/New_York');
     expect(screen.getByText(/Last login/i)).toBeInTheDocument();
   });
 

@@ -107,6 +107,9 @@ type NormalizedFrameworkMapping = {
 };
 
 type TransactionClient = Prisma.TransactionClient;
+type AuditLogExecutor =
+  | Pick<PrismaService, 'policyAuditLog'>
+  | Pick<TransactionClient, 'policyAuditLog'>;
 
 @Injectable()
 export class PolicyService {
@@ -207,6 +210,108 @@ export class PolicyService {
     return this.toPolicyDetail(policy);
   }
 
+  async updatePolicy(
+    policyId: string,
+    actor: PolicyActor,
+    dto: UpdatePolicyDto
+  ): Promise<PolicyDetail> {
+    const policy = await this.findPolicyOrThrow(policyId, actor.organizationId);
+
+    this.ensureCanAuthorPolicy(actor, {
+      ownerId: policy.ownerId,
+      organizationId: policy.organizationId
+    });
+
+    const updateData: Prisma.PolicyDocumentUpdateInput = {};
+
+    if (typeof dto.title !== 'undefined') {
+      const trimmed = dto.title.trim();
+      if (!trimmed) {
+        throw new BadRequestException('Title cannot be empty.');
+      }
+      updateData.title = trimmed;
+    }
+
+    if (typeof dto.description !== 'undefined') {
+      updateData.description = dto.description?.trim() || null;
+    }
+
+    if (typeof dto.category !== 'undefined') {
+      const trimmed = dto.category?.trim() || '';
+      updateData.category = trimmed.length > 0 ? trimmed : null;
+    }
+
+    if (typeof dto.tags !== 'undefined') {
+      updateData.tags =
+        dto.tags
+          ?.map((tag) => tag.trim())
+          .filter((tag) => tag.length > 0) ?? [];
+    }
+
+    if (typeof dto.reviewCadenceDays !== 'undefined') {
+      updateData.reviewCadenceDays = dto.reviewCadenceDays ?? null;
+    }
+
+    if (typeof dto.ownerId === 'string' && dto.ownerId.length > 0 && dto.ownerId !== policy.ownerId) {
+      updateData.ownerId = await this.resolveOwnerId(actor, dto.ownerId);
+    }
+
+    let retentionChanged = false;
+
+    if (typeof dto.retentionPeriodDays !== 'undefined') {
+      updateData.retentionPeriodDays = dto.retentionPeriodDays ?? null;
+      retentionChanged = true;
+    }
+
+    if (typeof dto.retentionReason !== 'undefined') {
+      const trimmedReason = dto.retentionReason?.trim() || '';
+      updateData.retentionReason = trimmedReason.length > 0 ? trimmedReason : null;
+      retentionChanged = true;
+    }
+
+    if (typeof dto.retentionExpiresAt !== 'undefined') {
+      updateData.retentionExpiresAt = dto.retentionExpiresAt
+        ? new Date(dto.retentionExpiresAt)
+        : null;
+      retentionChanged = true;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return this.toPolicyDetail(policy);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.policyDocument.update({
+        where: { id: policyId },
+        data: updateData,
+        select: {
+          id: true,
+          retentionPeriodDays: true,
+          retentionReason: true,
+          retentionExpiresAt: true
+        }
+      });
+
+      if (retentionChanged) {
+        await this.recordAudit(tx, {
+          policyId,
+          actorId: actor.id,
+          action: PolicyAuditAction.RETENTION_UPDATED,
+          metadata: {
+            retentionPeriodDays: updated.retentionPeriodDays,
+            retentionReason: updated.retentionReason,
+            retentionExpiresAt: updated.retentionExpiresAt
+              ? updated.retentionExpiresAt.toISOString()
+              : null
+          }
+        });
+      }
+    });
+
+    const refreshed = await this.findPolicyOrThrow(policyId, actor.organizationId);
+    return this.toPolicyDetail(refreshed);
+  }
+
   async createPolicy(
     actor: PolicyActor,
     dto: CreatePolicyDto
@@ -218,51 +323,45 @@ export class PolicyService {
         ? await this.resolveOwnerId(actor, dto.ownerId)
         : actor.id;
 
-    const policy = await this.prisma.policyDocument.create({
-      data: {
-        organizationId: actor.organizationId,
-        ownerId,
-        title: dto.title.trim(),
-        description: dto.description?.trim(),
-        category: dto.category?.trim(),
-        tags: dto.tags?.map((tag) => tag.trim()).filter(Boolean) ?? [],
-        reviewCadenceDays: dto.reviewCadenceDays ?? null
-      },
-      include: {
-        owner: true,
-        currentVersion: {
-          include: {
-            approvals: true,
-            frameworkMappings: {
-              include: { framework: true }
-            }
-          }
-        },
-        versions: {
-          include: {
-            approvals: {
-              include: {
-                approver: true
-              }
-            },
-            frameworkMappings: {
-              include: { framework: true }
-            },
-            createdBy: true,
-            submittedBy: true,
-            approvedBy: true
-          },
-          orderBy: [{ versionNumber: 'desc' }]
-        },
-        auditTrail: {
-          include: {
-            actor: true
-          },
-          orderBy: { createdAt: 'desc' }
+    const trimmedReason =
+      typeof dto.retentionReason === 'string'
+        ? dto.retentionReason.trim() || null
+        : null;
+    const retentionExpiresAt = dto.retentionExpiresAt
+      ? new Date(dto.retentionExpiresAt)
+      : null;
+    const tags =
+      dto.tags?.map((tag) => tag.trim()).filter((tag) => tag.length > 0) ?? [];
+
+    const policyId = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.policyDocument.create({
+        data: {
+          organizationId: actor.organizationId,
+          ownerId,
+          title: dto.title.trim(),
+          description: dto.description?.trim(),
+          category: dto.category?.trim(),
+          tags,
+          reviewCadenceDays: dto.reviewCadenceDays ?? null,
+          retentionPeriodDays: dto.retentionPeriodDays ?? null,
+          retentionReason: trimmedReason,
+          retentionExpiresAt
         }
-      }
+      });
+
+      await this.recordAudit(tx, {
+        policyId: created.id,
+        actorId: actor.id,
+        action: PolicyAuditAction.POLICY_CREATED,
+        metadata: {
+          title: created.title
+        }
+      });
+
+      return created.id;
     });
 
+    const policy = await this.findPolicyOrThrow(policyId, actor.organizationId);
     return this.toPolicyDetail(policy);
   }
 
@@ -330,43 +429,78 @@ export class PolicyService {
 
     const effectiveAt = dto.effectiveAt ? new Date(dto.effectiveAt) : null;
 
-    const createdVersion = await this.prisma.policyVersion.create({
-      data: {
-        policyId,
-        versionNumber: nextVersionNumber,
-        label: dto.label?.trim() ?? null,
-        notes: dto.notes?.trim() ?? null,
-        createdById: actor.id,
-        status: PolicyVersionStatus.DRAFT,
-        storagePath: storageResult.storagePath,
-        originalName: file.originalname,
-        mimeType: file.mimetype,
-        fileSizeBytes: file.size,
-        checksum: storageResult.checksum,
-        supersedesId,
-        effectiveAt,
-        isCurrent: false
-      },
-      include: {
-        document: {
-          select: {
-            id: true,
-            ownerId: true,
-            organizationId: true
-          }
+    const frameworkMappings = await this.normalizeFrameworkMappings(
+      actor,
+      dto.frameworkMappings
+    );
+
+    let versionId: string | null = null;
+
+    await this.prisma.$transaction(async (tx) => {
+      const created = await tx.policyVersion.create({
+        data: {
+          policyId,
+          versionNumber: nextVersionNumber,
+          label: dto.label?.trim() ?? null,
+          notes: dto.notes?.trim() ?? null,
+          createdById: actor.id,
+          status: PolicyVersionStatus.DRAFT,
+          storagePath: storageResult.storagePath,
+          originalName: file.originalname,
+          mimeType: file.mimetype,
+          fileSizeBytes: file.size,
+          checksum: storageResult.checksum,
+          supersedesId,
+          effectiveAt,
+          isCurrent: false
         },
-        approvals: {
-          include: {
-            approver: true
-          }
-        },
-        createdBy: true,
-        submittedBy: true,
-        approvedBy: true
+        select: {
+          id: true,
+          versionNumber: true
+        }
+      });
+
+      versionId = created.id;
+
+      await tx.policyVersionFramework.deleteMany({
+        where: { policyVersionId: created.id }
+      });
+
+      if (frameworkMappings.length > 0) {
+        await tx.policyVersionFramework.createMany({
+          data: frameworkMappings.map((mapping) => ({
+            policyVersionId: created.id,
+            frameworkId: mapping.frameworkId,
+            controlFamilies: mapping.controlFamilies,
+            controlIds: mapping.controlIds
+          }))
+        });
       }
+
+      await this.recordAudit(tx, {
+        policyId,
+        policyVersionId: created.id,
+        actorId: actor.id,
+        action: PolicyAuditAction.VERSION_CREATED,
+        metadata:
+          frameworkMappings.length > 0
+            ? {
+                frameworks: frameworkMappings.map((mapping) => ({
+                  frameworkId: mapping.frameworkId,
+                  controlFamilies: mapping.controlFamilies,
+                  controlIds: mapping.controlIds
+                }))
+              }
+            : null
+      });
     });
 
-    return this.toPolicyVersionView(createdVersion);
+    if (!versionId) {
+      throw new BadRequestException('Failed to persist policy version.');
+    }
+
+    const reloaded = await this.loadVersionForActor(versionId, actor);
+    return this.toPolicyVersionView(reloaded);
   }
 
   async submitForApproval(
@@ -426,6 +560,7 @@ export class PolicyService {
     }
 
     const now = new Date();
+    const submissionMessage = dto.message?.trim() || null;
 
     await this.prisma.$transaction(async (tx) => {
       await tx.policyVersion.update({
@@ -466,6 +601,17 @@ export class PolicyService {
           }
         });
       }
+
+      await this.recordAudit(tx, {
+        policyId,
+        policyVersionId: versionId,
+        actorId: actor.id,
+        action: PolicyAuditAction.VERSION_SUBMITTED,
+        message: submissionMessage,
+        metadata: {
+          approverIds: uniqueApprovers
+        }
+      });
     });
 
     const reloaded = await this.loadVersionForActor(versionId, actor);
@@ -511,6 +657,7 @@ export class PolicyService {
         : PolicyApprovalStatus.REJECTED;
 
     const now = new Date();
+    const decisionMessage = dto.comment?.trim() || null;
 
     await this.prisma.$transaction(async (tx) => {
       await tx.policyApproval.update({
@@ -523,7 +670,18 @@ export class PolicyService {
         data: {
           status: decision,
           decidedAt: now,
-          decisionComment: dto.comment ?? null
+          decisionComment: decisionMessage
+        }
+      });
+
+      await this.recordAudit(tx, {
+        policyId,
+        policyVersionId: versionId,
+        actorId: actor.id,
+        action: PolicyAuditAction.APPROVAL_RECORDED,
+        message: decisionMessage,
+        metadata: {
+          decision: dto.decision
         }
       });
 
@@ -551,6 +709,16 @@ export class PolicyService {
             decidedAt: now,
             decisionComment:
               'Automatically rejected because another approver rejected the version.'
+          }
+        });
+
+        await this.recordAudit(tx, {
+          policyId,
+          policyVersionId: versionId,
+          actorId: actor.id,
+          action: PolicyAuditAction.VERSION_ARCHIVED,
+          metadata: {
+            reason: 'Rejected by approver'
           }
         });
 
@@ -594,6 +762,20 @@ export class PolicyService {
           where: { id: policyId },
           data: { currentVersionId: versionId }
         });
+
+        await this.recordAudit(tx, {
+          policyId,
+          policyVersionId: versionId,
+          actorId: actor.id,
+          action: PolicyAuditAction.VERSION_PUBLISHED,
+          metadata: {
+            effectiveAt: dto.effectiveAt
+              ? new Date(dto.effectiveAt).toISOString()
+              : version.effectiveAt
+              ? version.effectiveAt.toISOString()
+              : null
+          }
+        });
       }
     });
 
@@ -618,6 +800,16 @@ export class PolicyService {
 
     const absolutePath = this.storage.getAbsolutePath(version.storagePath);
 
+    await this.recordAudit(this.prisma, {
+      policyId,
+      policyVersionId: versionId,
+      actorId: actor.id,
+      action: PolicyAuditAction.DOCUMENT_DOWNLOADED,
+      metadata: {
+        filename: version.originalName
+      }
+    });
+
     return {
       path: absolutePath,
       filename: version.originalName,
@@ -635,7 +827,12 @@ export class PolicyService {
         owner: true,
         currentVersion: {
           include: {
-            approvals: true
+            approvals: true,
+            frameworkMappings: {
+              include: {
+                framework: true
+              }
+            }
           }
         },
         versions: {
@@ -645,11 +842,22 @@ export class PolicyService {
                 approver: true
               }
             },
+            frameworkMappings: {
+              include: {
+                framework: true
+              }
+            },
             createdBy: true,
             submittedBy: true,
             approvedBy: true
           },
           orderBy: [{ versionNumber: 'desc' }]
+        },
+        auditTrail: {
+          include: {
+            actor: true
+          },
+          orderBy: { createdAt: 'desc' }
         }
       }
     });
@@ -724,11 +932,16 @@ export class PolicyService {
           0
         ),
       lastUpdated: policy.updatedAt.toISOString(),
+      frameworks: policy.currentVersion
+        ? this.toFrameworkMappings(policy.currentVersion.frameworkMappings)
+        : [],
       description: policy.description,
       reviewCadenceDays: policy.reviewCadenceDays,
       versions: policy.versions.map((version) =>
         this.toPolicyVersionView(version)
-      )
+      ),
+      retention: this.toRetentionView(policy),
+      auditTrail: policy.auditTrail.map((entry) => this.toAuditEntry(entry))
     };
   }
 
@@ -764,8 +977,187 @@ export class PolicyService {
       },
       approvals: version.approvals.map((approval) =>
         this.toApprovalView(approval)
-      )
+      ),
+      frameworks: this.toFrameworkMappings(version.frameworkMappings)
     };
+  }
+
+  private toFrameworkMappings(
+    mappings: PolicyVersionFrameworkRow[]
+  ): PolicyFrameworkMapping[] {
+    return mappings.map((mapping) => ({
+      frameworkId: mapping.frameworkId,
+      frameworkName: mapping.framework.name,
+      controlFamilies: [...(mapping.controlFamilies ?? [])],
+      controlIds: [...(mapping.controlIds ?? [])]
+    }));
+  }
+
+  private toRetentionView(policy: {
+    retentionPeriodDays: number | null;
+    retentionReason: string | null;
+    retentionExpiresAt: Date | null;
+  }): PolicyRetentionView {
+    return {
+      periodDays: policy.retentionPeriodDays ?? null,
+      reason: policy.retentionReason ?? null,
+      expiresAt: policy.retentionExpiresAt
+        ? policy.retentionExpiresAt.toISOString()
+        : null
+    };
+  }
+
+  private toAuditEntry(
+    entry: Prisma.PolicyAuditLogGetPayload<{
+      include: { actor: true };
+    }>
+  ): PolicyAuditEntry {
+    return {
+      id: entry.id,
+      action: entry.action,
+      actor: entry.actor ? this.toUserSummary(entry.actor) : null,
+      message: entry.message ?? null,
+      metadata: (entry.metadata as Record<string, unknown> | null) ?? null,
+      createdAt: entry.createdAt.toISOString(),
+      versionId: entry.policyVersionId
+    };
+  }
+
+  private async normalizeFrameworkMappings(
+    actor: PolicyActor,
+    rawMappings?: string
+  ): Promise<NormalizedFrameworkMapping[]> {
+    if (!rawMappings) {
+      return [];
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawMappings);
+    } catch {
+      throw new BadRequestException(
+        'Framework mappings payload must be valid JSON.'
+      );
+    }
+
+    if (!Array.isArray(parsed)) {
+      throw new BadRequestException(
+        'Framework mappings payload must be an array.'
+      );
+    }
+
+    const sanitized: NormalizedFrameworkMapping[] = [];
+
+    for (const item of parsed) {
+      if (!item || typeof item !== 'object') {
+        continue;
+      }
+
+      const candidate = item as RawFrameworkMapping;
+      const frameworkId =
+        typeof candidate.frameworkId === 'string'
+          ? candidate.frameworkId.trim()
+          : '';
+
+      if (!frameworkId) {
+        continue;
+      }
+
+      const controlFamilies = Array.isArray(candidate.controlFamilies)
+        ? candidate.controlFamilies
+            .map((family) => family?.toString().trim())
+            .filter((family): family is string => Boolean(family && family.length > 0))
+        : [];
+
+      const controlIds = Array.isArray(candidate.controlIds)
+        ? candidate.controlIds
+            .map((control) => control?.toString().trim())
+            .filter((control): control is string => Boolean(control && control.length > 0))
+        : [];
+
+      sanitized.push({
+        frameworkId,
+        controlFamilies,
+        controlIds
+      });
+    }
+
+    if (sanitized.length === 0) {
+      return [];
+    }
+
+    const deduped = new Map<string, NormalizedFrameworkMapping>();
+    for (const mapping of sanitized) {
+      const existing = deduped.get(mapping.frameworkId);
+      if (existing) {
+        existing.controlFamilies = this.mergeUnique(
+          existing.controlFamilies,
+          mapping.controlFamilies
+        );
+        existing.controlIds = this.mergeUnique(
+          existing.controlIds,
+          mapping.controlIds
+        );
+      } else {
+        deduped.set(mapping.frameworkId, {
+          frameworkId: mapping.frameworkId,
+          controlFamilies: [...mapping.controlFamilies],
+          controlIds: [...mapping.controlIds]
+        });
+      }
+    }
+
+    const normalized = Array.from(deduped.values());
+
+    const frameworkIds = normalized.map((mapping) => mapping.frameworkId);
+    const frameworks = await this.prisma.framework.findMany({
+      where: {
+        id: { in: frameworkIds },
+        organizationId: actor.organizationId
+      },
+      select: { id: true }
+    });
+
+    if (frameworks.length !== frameworkIds.length) {
+      throw new BadRequestException(
+        'Framework mappings include frameworks outside of your organization.'
+      );
+    }
+
+    return normalized;
+  }
+
+  private mergeUnique(base: string[], additions: string[]): string[] {
+    const combined = [...base];
+    for (const value of additions) {
+      if (!combined.includes(value)) {
+        combined.push(value);
+      }
+    }
+    return combined;
+  }
+
+  private async recordAudit(
+    executor: AuditLogExecutor,
+    params: {
+      policyId: string;
+      action: PolicyAuditAction;
+      actorId?: string | null;
+      policyVersionId?: string | null;
+      message?: string | null;
+      metadata?: Prisma.InputJsonValue | null;
+    }
+  ): Promise<void> {
+    await executor.policyAuditLog.create({
+      data: {
+        policyId: params.policyId,
+        policyVersionId: params.policyVersionId ?? null,
+        actorId: params.actorId ?? null,
+        action: params.action,
+        message: params.message ?? null,
+        metadata: params.metadata ?? null
+      }
+    });
   }
 
   private toVersionSummary(

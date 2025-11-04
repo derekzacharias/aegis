@@ -12,6 +12,7 @@ export interface AuthUser {
   bio?: string | null;
   role: UserRole;
   organizationId: string;
+  mustResetPassword?: boolean;
   lastLoginAt?: string | null;
   createdAt?: string;
   updatedAt?: string;

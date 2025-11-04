@@ -24,6 +24,8 @@ import dayjs from 'dayjs';
 import { UserRole } from '@compliance/shared';
 import useProfile from '../../hooks/use-profile';
 import useAuth from '../../hooks/use-auth';
+import { formatPhoneNumber } from '../../utils/phone';
+import { getDefaultTimezone, getTimezoneOptions } from '../../utils/timezones';
 
 const formatDateTime = (value: string | null | undefined) => {
   if (!value) {
@@ -64,15 +66,15 @@ const ProfileSettings = () => {
   const toast = useToast();
   const { profile, updateProfile, changePassword, loadAudits, audits, isUpdating, updateRole } = useProfile();
   const { user } = useAuth();
-  const [form, setForm] = useState({
+  const [form, setForm] = useState(() => ({
     firstName: '',
     lastName: '',
     jobTitle: '',
     phoneNumber: '',
-    timezone: '',
+    timezone: getDefaultTimezone(),
     avatarUrl: '',
     bio: ''
-  });
+  }));
   const [roleValue, setRoleValue] = useState<UserRole>('ANALYST');
   const [profileError, setProfileError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
@@ -84,14 +86,16 @@ const ProfileSettings = () => {
   const [loadingAudits, setLoadingAudits] = useState(false);
   const { isOpen, onToggle } = useDisclosure();
 
+  const timezoneOptions = useMemo(() => getTimezoneOptions(), []);
+
   useEffect(() => {
     if (profile) {
       setForm({
         firstName: profile.firstName ?? '',
         lastName: profile.lastName ?? '',
         jobTitle: profile.jobTitle ?? '',
-        phoneNumber: profile.phoneNumber ?? '',
-        timezone: profile.timezone ?? '',
+        phoneNumber: formatPhoneNumber(profile.phoneNumber ?? ''),
+        timezone: profile.timezone ?? getDefaultTimezone(),
         avatarUrl: profile.avatarUrl ?? '',
         bio: profile.bio ?? ''
       });
@@ -239,16 +243,25 @@ const ProfileSettings = () => {
               <FormLabel>Phone number</FormLabel>
               <Input
                 value={form.phoneNumber}
-                onChange={(event) => setForm((prev) => ({ ...prev, phoneNumber: event.target.value }))}
+                onChange={(event) => {
+                  const nextValue = formatPhoneNumber(event.target.value);
+                  setForm((prev) => ({ ...prev, phoneNumber: nextValue }));
+                }}
               />
             </FormControl>
             <FormControl>
               <FormLabel>Timezone</FormLabel>
-              <Input
-                placeholder="America/New_York"
+              <Select
+                placeholder="Select timezone"
                 value={form.timezone}
                 onChange={(event) => setForm((prev) => ({ ...prev, timezone: event.target.value }))}
-              />
+              >
+                {timezoneOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
             </FormControl>
             <FormControl>
               <FormLabel>Avatar URL</FormLabel>
