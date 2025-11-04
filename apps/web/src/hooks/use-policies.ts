@@ -135,6 +135,10 @@ export const useUploadPolicyVersion = (actorId?: string) => {
         formData.append('supersedesVersionId', payload.supersedesVersionId);
       }
 
+      if (payload.frameworks && payload.frameworks.length > 0) {
+        formData.append('frameworkMappings', JSON.stringify(payload.frameworks));
+      }
+
       const { data } = await apiClient.post<PolicyVersionView>(
         `/policies/${policyId}/versions`,
         formData,

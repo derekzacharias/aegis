@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { UserRole } from '@prisma/client';
 import { hash } from 'bcrypt';
+import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
@@ -18,14 +19,35 @@ const mockPrisma = {
     update: jest.fn(),
     updateMany: jest.fn()
   },
+  userInvite: {
+    findFirst: jest.fn(),
+    update: jest.fn(),
+    updateMany: jest.fn()
+  },
+  userPasswordResetToken: {
+    findFirst: jest.fn(),
+    update: jest.fn()
+  },
   userProfileAudit: {
     create: jest.fn()
   },
   organization: {
     findUnique: jest.fn(),
     findFirst: jest.fn()
-  }
+  },
+  $transaction: jest.fn()
 };
+
+const transactionalClient = {
+  user: mockPrisma.user,
+  userInvite: mockPrisma.userInvite,
+  userPasswordResetToken: mockPrisma.userPasswordResetToken,
+  userProfileAudit: mockPrisma.userProfileAudit
+};
+
+mockPrisma.$transaction.mockImplementation(async (callback: (tx: typeof transactionalClient) => Promise<unknown>) =>
+  callback(transactionalClient)
+);
 
 const mockJwtService = {
   signAsync: jest.fn(),
@@ -64,7 +86,10 @@ const createService = () =>
 
 describe('AuthService', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
+    mockPrisma.$transaction.mockImplementation(async (callback: (tx: typeof transactionalClient) => Promise<unknown>) =>
+      callback(transactionalClient)
+    );
   });
 
   describe('register', () => {
@@ -208,6 +233,35 @@ describe('AuthService', () => {
         })
       ).rejects.toBeInstanceOf(UnauthorizedException);
     });
+
+    it('requires password reset when mustResetPassword is true', async () => {
+      const passwordHash = await hash('ResetMeNow!42', 12);
+
+      mockPrisma.user.findUnique.mockResolvedValueOnce({
+        id: 'user-1',
+        email: 'analyst@example.com',
+        passwordHash,
+        role: UserRole.ANALYST,
+        organizationId: 'org-1',
+        mustResetPassword: true
+      });
+
+      const service = createService();
+
+      await expect(
+        service.login({
+          email: 'analyst@example.com',
+          password: 'ResetMeNow!42'
+        })
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'PASSWORD_RESET_REQUIRED' })
+      });
+
+      expect(mockPrisma.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: expect.objectContaining({ refreshTokenInvalidatedAt: expect.any(Date) })
+      });
+    });
   });
 
   describe('refresh', () => {
@@ -306,14 +360,7 @@ describe('AuthService', () => {
         UnauthorizedException
       );
 
-      expect(mockPrisma.user.updateMany).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
-        data: expect.objectContaining({
-          refreshTokenHash: null,
-          refreshTokenId: null,
-          refreshTokenInvalidatedAt: expect.any(Date)
-        })
-      });
+      expect(mockPrisma.user.updateMany).not.toHaveBeenCalled();
       expect(mockPrisma.userProfileAudit.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           userId: 'user-1',
@@ -340,6 +387,164 @@ describe('AuthService', () => {
           refreshTokenInvalidatedAt: expect.any(Date)
         }
       });
+    });
+  });
+
+  describe('acceptInvite', () => {
+    it('creates a user from a valid invite and returns tokens', async () => {
+      const expiresAt = new Date(Date.now() + 3600 * 1000);
+      const inviteToken = 'invite-token';
+      const inviteHash = createHash('sha256').update(inviteToken).digest('hex');
+
+      mockPrisma.userInvite.findFirst.mockResolvedValueOnce({
+        id: 'invite-1',
+        email: 'invitee@example.com',
+        role: UserRole.ANALYST,
+        tokenHash: inviteHash,
+        expiresAt,
+        revokedAt: null,
+        acceptedAt: null,
+        organizationId: 'org-1'
+      });
+
+      mockPrisma.user.findUnique.mockResolvedValueOnce(null);
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+
+      mockPrisma.userInvite.update.mockResolvedValueOnce({});
+
+      const createdUser = {
+        id: 'user-2',
+        email: 'invitee@example.com',
+        firstName: 'Invited',
+        lastName: 'User',
+        jobTitle: null,
+        phoneNumber: null,
+        timezone: null,
+        avatarUrl: null,
+        bio: null,
+        role: UserRole.ANALYST,
+        organizationId: 'org-1',
+        mustResetPassword: false,
+        passwordHash: await hash('InvitePass!234', 12),
+        refreshTokenHash: null,
+        refreshTokenId: null,
+        refreshTokenIssuedAt: null,
+        refreshTokenInvalidatedAt: null,
+        passwordChangedAt: new Date(),
+        lastLoginAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+
+      mockPrisma.user.create.mockResolvedValueOnce(createdUser);
+      mockPrisma.userProfileAudit.create.mockResolvedValueOnce({});
+
+      mockJwtService.signAsync
+        .mockResolvedValueOnce('invite-access')
+        .mockResolvedValueOnce('invite-refresh');
+      mockPrisma.user.update.mockResolvedValueOnce({});
+
+      const service = createService();
+
+      const result = await service.acceptInvite({
+        token: inviteToken,
+        email: 'invitee@example.com',
+        password: 'InvitePass!234',
+        firstName: 'Invited',
+        lastName: 'User'
+      });
+
+      expect(result.user.email).toBe('invitee@example.com');
+      expect(result.tokens.accessToken).toBe('invite-access');
+      expect(mockPrisma.userInvite.update).toHaveBeenCalledWith({
+        where: { id: 'invite-1' },
+        data: expect.objectContaining({ acceptedAt: expect.any(Date) })
+      });
+      expect(mockPrisma.user.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          email: 'invitee@example.com',
+          role: UserRole.ANALYST,
+          organizationId: 'org-1'
+        })
+      });
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-2' },
+        data: expect.objectContaining({
+          refreshTokenHash: expect.any(String),
+          refreshTokenId: expect.any(String)
+        })
+      });
+    });
+
+    it('throws when invite token is invalid', async () => {
+      mockPrisma.userInvite.findFirst.mockResolvedValueOnce(null);
+
+      const service = createService();
+
+      await expect(
+        service.acceptInvite({
+          token: 'bad-token',
+          email: 'invitee@example.com',
+          password: 'InvitePass!234'
+        })
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe('resetPasswordWithToken', () => {
+    it('resets password when provided a valid token', async () => {
+      const resetToken = 'reset-token';
+      const tokenHash = createHash('sha256').update(resetToken).digest('hex');
+      const userId = 'user-3';
+
+      mockPrisma.userPasswordResetToken.findFirst.mockResolvedValueOnce({
+        id: 'token-1',
+        userId,
+        tokenHash,
+        expiresAt: new Date(Date.now() + 3600 * 1000),
+        consumedAt: null,
+        user: {
+          id: userId,
+          email: 'reset@example.com'
+        }
+      });
+
+      mockPrisma.user.update.mockResolvedValueOnce({});
+      mockPrisma.userPasswordResetToken.update.mockResolvedValueOnce({});
+      mockPrisma.userProfileAudit.create.mockResolvedValueOnce({});
+
+      const service = createService();
+
+      await service.resetPasswordWithToken({
+        token: resetToken,
+        password: 'NewSecurePass!9'
+      });
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: userId },
+        data: expect.objectContaining({
+          mustResetPassword: false,
+          passwordHash: expect.any(String),
+          refreshTokenHash: null
+        })
+      });
+      expect(mockPrisma.userPasswordResetToken.update).toHaveBeenCalledWith({
+        where: { id: 'token-1' },
+        data: { consumedAt: expect.any(Date) }
+      });
+    });
+
+    it('throws when reset token is invalid or expired', async () => {
+      mockPrisma.userPasswordResetToken.findFirst.mockResolvedValueOnce(null);
+
+      const service = createService();
+
+      await expect(
+        service.resetPasswordWithToken({
+          token: 'bad-reset',
+          password: 'NewSecurePass!9'
+        })
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 

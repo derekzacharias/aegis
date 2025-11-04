@@ -1,4 +1,4 @@
-import { AuthUser } from './auth.types';
+import { AuthUser, UserRole } from './auth.types';
 
 export interface UserProfile extends AuthUser {
   createdAt: string;
