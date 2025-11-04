@@ -11,7 +11,7 @@ EXCEPTION
     WHEN duplicate_object THEN NULL;
 END $$;
 
-CREATE TABLE "PolicyDocument" (
+CREATE TABLE IF NOT EXISTS "PolicyDocument" (
     "id" TEXT PRIMARY KEY,
     "organizationId" TEXT NOT NULL,
     "ownerId" TEXT NOT NULL,
@@ -27,7 +27,7 @@ CREATE TABLE "PolicyDocument" (
     CONSTRAINT "PolicyDocument_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
-CREATE TABLE "PolicyVersion" (
+CREATE TABLE IF NOT EXISTS "PolicyVersion" (
     "id" TEXT PRIMARY KEY,
     "policyId" TEXT NOT NULL,
     "versionNumber" INTEGER NOT NULL,
@@ -56,7 +56,7 @@ CREATE TABLE "PolicyVersion" (
     CONSTRAINT "PolicyVersion_supersedesId_fkey" FOREIGN KEY ("supersedesId") REFERENCES "PolicyVersion"("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
-CREATE TABLE "PolicyApproval" (
+CREATE TABLE IF NOT EXISTS "PolicyApproval" (
     "id" TEXT PRIMARY KEY,
     "policyVersionId" TEXT NOT NULL,
     "approverId" TEXT NOT NULL,
@@ -69,18 +69,32 @@ CREATE TABLE "PolicyApproval" (
     CONSTRAINT "PolicyApproval_approverId_fkey" FOREIGN KEY ("approverId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
-ALTER TABLE "PolicyDocument"
-    ADD CONSTRAINT "PolicyDocument_currentVersionId_fkey" FOREIGN KEY ("currentVersionId") REFERENCES "PolicyVersion"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$
+DECLARE
+    policy_document_table regclass := to_regclass('public."PolicyDocument"');
+BEGIN
+    IF policy_document_table IS NOT NULL THEN
+        IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'PolicyDocument_currentVersionId_fkey'
+              AND conrelid = policy_document_table
+        ) THEN
+            ALTER TABLE "PolicyDocument"
+                ADD CONSTRAINT "PolicyDocument_currentVersionId_fkey" FOREIGN KEY ("currentVersionId") REFERENCES "PolicyVersion"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+        END IF;
+    END IF;
+END $$;
 
-CREATE UNIQUE INDEX "PolicyDocument_currentVersionId_key" ON "PolicyDocument" ("currentVersionId");
+CREATE UNIQUE INDEX IF NOT EXISTS "PolicyDocument_currentVersionId_key" ON "PolicyDocument" ("currentVersionId");
 
-CREATE UNIQUE INDEX "PolicyVersion_policyId_versionNumber_key" ON "PolicyVersion" ("policyId", "versionNumber");
+CREATE UNIQUE INDEX IF NOT EXISTS "PolicyVersion_policyId_versionNumber_key" ON "PolicyVersion" ("policyId", "versionNumber");
 
-CREATE UNIQUE INDEX "PolicyApproval_policyVersionId_approverId_key" ON "PolicyApproval" ("policyVersionId", "approverId");
+CREATE UNIQUE INDEX IF NOT EXISTS "PolicyApproval_policyVersionId_approverId_key" ON "PolicyApproval" ("policyVersionId", "approverId");
 
-CREATE INDEX "PolicyDocument_organizationId_idx" ON "PolicyDocument" ("organizationId");
-CREATE INDEX "PolicyDocument_ownerId_idx" ON "PolicyDocument" ("ownerId");
-CREATE INDEX "PolicyVersion_policyId_idx" ON "PolicyVersion" ("policyId");
-CREATE INDEX "PolicyVersion_status_idx" ON "PolicyVersion" ("status");
-CREATE INDEX "PolicyApproval_policyVersionId_idx" ON "PolicyApproval" ("policyVersionId");
-CREATE INDEX "PolicyApproval_approverId_idx" ON "PolicyApproval" ("approverId");
+CREATE INDEX IF NOT EXISTS "PolicyDocument_organizationId_idx" ON "PolicyDocument" ("organizationId");
+CREATE INDEX IF NOT EXISTS "PolicyDocument_ownerId_idx" ON "PolicyDocument" ("ownerId");
+CREATE INDEX IF NOT EXISTS "PolicyVersion_policyId_idx" ON "PolicyVersion" ("policyId");
+CREATE INDEX IF NOT EXISTS "PolicyVersion_status_idx" ON "PolicyVersion" ("status");
+CREATE INDEX IF NOT EXISTS "PolicyApproval_policyVersionId_idx" ON "PolicyApproval" ("policyVersionId");
+CREATE INDEX IF NOT EXISTS "PolicyApproval_approverId_idx" ON "PolicyApproval" ("approverId");

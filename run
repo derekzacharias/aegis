@@ -8,6 +8,11 @@ const path = require('path');
 const readline = require('readline');
 
 const rootDir = __dirname;
+const defaultDatabaseUrl = 'postgresql://aegis_dev:AegisDevPass123!@127.0.0.1:5432/aegis_dev';
+const usingDefaultDatabaseUrl = !process.env['DATABASE_URL'];
+if (usingDefaultDatabaseUrl) {
+  process.env['DATABASE_URL'] = defaultDatabaseUrl;
+}
 const logsRoot = path.join(rootDir, 'logs');
 fs.mkdirSync(logsRoot, { recursive: true });
 
@@ -300,14 +305,9 @@ async function ensureDependencies() {
 }
 
 async function ensurePrismaClient() {
-  const clientPath = path.join(rootDir, 'node_modules', '.prisma', 'client', 'index.js');
-  if (fs.existsSync(clientPath)) {
-    return;
-  }
-
   log('Generating Prisma client...');
   await runCommandStreaming('prisma:generate', 'npm', ['run', 'prisma:generate'], {
-    env: process.env
+    env: { ...process.env, FORCE_COLOR: '1' }
   });
   log('Prisma client generated.');
 }
@@ -531,6 +531,10 @@ process.on('SIGTERM', () => {
 
 async function main() {
   log(`Run logs will be stored in ${runDir}`);
+
+  if (usingDefaultDatabaseUrl) {
+    log('DATABASE_URL not found in environment; using default connection for aegis-postgres container.');
+  }
 
   try {
     await ensureNpmAvailable();

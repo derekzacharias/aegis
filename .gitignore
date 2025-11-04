@@ -28,3 +28,4 @@ gitignore
 !/types/
 !/types/**/*
 !/Makefile
+apps/api/prisma/.env

@@ -1,5 +1,10 @@
 -- Create Enum for scan status
-CREATE TYPE "EvidenceScanStatus" AS ENUM ('PENDING', 'RUNNING', 'CLEAN', 'INFECTED', 'FAILED');
+DO $$
+BEGIN
+    CREATE TYPE "EvidenceScanStatus" AS ENUM ('PENDING', 'RUNNING', 'CLEAN', 'INFECTED', 'FAILED');
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Add new columns to EvidenceItem for caching latest scan details
 ALTER TABLE "EvidenceItem"
@@ -32,10 +37,24 @@ CREATE TABLE IF NOT EXISTS "EvidenceScan" (
 );
 
 -- Relationship between scans and evidence
-ALTER TABLE "EvidenceScan"
-  ADD CONSTRAINT "EvidenceScan_evidenceId_fkey"
-  FOREIGN KEY ("evidenceId") REFERENCES "EvidenceItem"("id")
-  ON DELETE CASCADE
-  ON UPDATE CASCADE;
+DO $$
+DECLARE
+    scan_table regclass := to_regclass('public."EvidenceScan"');
+BEGIN
+    IF scan_table IS NOT NULL THEN
+        IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'EvidenceScan_evidenceId_fkey'
+              AND conrelid = scan_table
+        ) THEN
+            ALTER TABLE "EvidenceScan"
+              ADD CONSTRAINT "EvidenceScan_evidenceId_fkey"
+              FOREIGN KEY ("evidenceId") REFERENCES "EvidenceItem"("id")
+              ON DELETE CASCADE
+              ON UPDATE CASCADE;
+        END IF;
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS "EvidenceScan_evidenceId_idx" ON "EvidenceScan" ("evidenceId");

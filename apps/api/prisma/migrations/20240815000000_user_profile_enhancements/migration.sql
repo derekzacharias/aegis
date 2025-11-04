@@ -14,9 +14,23 @@ CREATE TABLE IF NOT EXISTS "UserProfileAudit" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-ALTER TABLE "UserProfileAudit"
-    ADD CONSTRAINT "UserProfileAudit_actorId_fkey"
-    FOREIGN KEY ("actorId") REFERENCES "User"("id") ON DELETE SET NULL;
+DO $$
+DECLARE
+    audit_table regclass := to_regclass('public."UserProfileAudit"');
+BEGIN
+    IF audit_table IS NOT NULL THEN
+        IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'UserProfileAudit_actorId_fkey'
+              AND conrelid = audit_table
+        ) THEN
+            ALTER TABLE "UserProfileAudit"
+                ADD CONSTRAINT "UserProfileAudit_actorId_fkey"
+                FOREIGN KEY ("actorId") REFERENCES "User"("id") ON DELETE SET NULL;
+        END IF;
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS "UserProfileAudit_userId_createdAt_idx"
     ON "UserProfileAudit" ("userId", "createdAt" DESC);
