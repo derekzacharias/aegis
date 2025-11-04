@@ -18,6 +18,9 @@ const mockPrisma = {
     update: jest.fn(),
     updateMany: jest.fn()
   },
+  userProfileAudit: {
+    create: jest.fn()
+  },
   organization: {
     findUnique: jest.fn(),
     findFirst: jest.fn()
@@ -262,9 +265,10 @@ describe('AuthService', () => {
           refreshTokenInvalidatedAt: null
         })
       });
+      expect(mockPrisma.userProfileAudit.create).not.toHaveBeenCalled();
     });
 
-    it('rejects when refresh token invalid', async () => {
+  it('rejects when refresh token invalid', async () => {
       mockJwtService.verifyAsync.mockRejectedValueOnce(new Error('bad token'));
 
       const service = createService();
@@ -272,6 +276,7 @@ describe('AuthService', () => {
       await expect(service.refresh({ refreshToken: 'invalid' })).rejects.toBeInstanceOf(
         UnauthorizedException
       );
+      expect(mockPrisma.userProfileAudit.create).not.toHaveBeenCalled();
     });
 
     it('invalidates refresh hash when payload is missing jti', async () => {
@@ -307,6 +312,13 @@ describe('AuthService', () => {
           refreshTokenHash: null,
           refreshTokenId: null,
           refreshTokenInvalidatedAt: expect.any(Date)
+        })
+      });
+      expect(mockPrisma.userProfileAudit.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'user-1',
+          actorId: null,
+          changes: expect.any(Object)
         })
       });
     });

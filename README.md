@@ -157,6 +157,8 @@ VITE_POLICY_ACTOR_EMAIL=alex.mercier@example.com
   scope endpoints to specific roles (`ADMIN`, `ANALYST`, `AUDITOR`, `READ_ONLY`). The seeded
   admin account (configurable via `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`) can invite or
   register new members during development.
+- **Service users** – Follow the [Service User Playbooks](docs/service-users.md) to provision
+  automation accounts, manage their credentials, and subscribe to refresh-token health alerts.
 - **Frontend** – The React app now presents a login screen, stores sessions in `localStorage`,
   handles automatic refresh, and surfaces authorization errors at the top of the shell.
 
