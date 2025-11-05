@@ -24,7 +24,7 @@ import {
   AntivirusScanFailureError
 } from '../antivirus/antivirus.errors';
 import { MetricsService } from '../metrics/metrics.service';
-import { NotificationService } from '../notifications/notification.service';
+import { NotificationService, NotificationUserProfile } from '../notifications/notification.service';
 
 const JOB_NAME = 'evidence.ingest';
 
@@ -69,8 +69,15 @@ export class EvidenceProcessor {
   private async handle(
     job: JobRecord<EvidenceIngestionJobPayload>
   ): Promise<{ quarantined: boolean }> {
-    const { evidenceId, scanId, storageUri, storageKey, storageProvider, checksum, requestedBy } =
-      job.payload;
+    const {
+      evidenceId,
+      scanId,
+      storageUri,
+      storageKey,
+      storageProvider,
+      checksum,
+      requestedByEmail
+    } = job.payload;
 
     this.logger.log(
       JSON.stringify({
@@ -154,7 +161,7 @@ export class EvidenceProcessor {
         this.metrics.incrementCounter(`${METRIC_PREFIX}.quarantined`, 1, {
           engine: this.engineName
         });
-        await this.handleInfected(record, scanId, outcome, requestedBy ?? null);
+        await this.handleInfected(record, scanId, outcome, requestedByEmail ?? null);
         return { quarantined: true };
       }
 
@@ -164,7 +171,7 @@ export class EvidenceProcessor {
       await this.handleClean(record, scanId, outcome);
       return { quarantined: false };
     } catch (error) {
-      return this.handleFailure(record, scanId, error as Error, requestedBy ?? null);
+      return this.handleFailure(record, scanId, error as Error, requestedByEmail ?? null);
     }
   }
 
@@ -271,7 +278,7 @@ export class EvidenceProcessor {
     record: EvidenceSummary,
     scanId: string,
     outcome: AntivirusScanOutcome,
-    requestedBy: string | null
+    requestedByEmail: string | null
   ): Promise<void> {
     const completedAt = new Date();
 
@@ -317,6 +324,8 @@ export class EvidenceProcessor {
       }
     });
 
+    const requestedBy = await this.resolveRequesterProfile(requestedByEmail);
+
     await this.notifications.notifyEvidence({
       evidenceId: record.id,
       organizationId: record.organizationId,
@@ -324,7 +333,7 @@ export class EvidenceProcessor {
       status: 'quarantined',
       reason: outcome.notes,
       findings: outcome.findings,
-      requestedBy: requestedBy ?? undefined
+      requestedBy
     });
 
     this.logger.warn(
@@ -342,7 +351,7 @@ export class EvidenceProcessor {
     record: EvidenceSummary,
     scanId: string,
     error: Error,
-    requestedBy: string | null
+    requestedByEmail: string | null
   ): Promise<{ quarantined: boolean }> {
     const failureReason = error.message;
     const completedAt = new Date();
@@ -402,6 +411,8 @@ export class EvidenceProcessor {
         }
       });
 
+      const requestedBy = await this.resolveRequesterProfile(requestedByEmail);
+
       await this.notifications.notifyEvidence({
         evidenceId: record.id,
         organizationId: record.organizationId,
@@ -409,7 +420,7 @@ export class EvidenceProcessor {
         status: 'quarantined',
         reason: failureReason,
         findings,
-        requestedBy: requestedBy ?? undefined
+        requestedBy
       });
     }
 
@@ -446,5 +457,55 @@ export class EvidenceProcessor {
         originalFilename: true
       }
     });
+  }
+
+  private async resolveRequesterProfile(
+    email: string | null
+  ): Promise<NotificationUserProfile | null> {
+    if (!email) {
+      return null;
+    }
+
+    if (!this.notifications.isEnabled()) {
+      return {
+        id: null,
+        email,
+        name: null,
+        phoneNumber: null,
+        timezone: null
+      };
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        phoneNumber: true,
+        timezone: true
+      }
+    });
+
+    if (!user) {
+      return {
+        id: null,
+        email,
+        name: null,
+        phoneNumber: null,
+        timezone: null
+      };
+    }
+
+    const name = [user.firstName, user.lastName].filter(Boolean).join(' ') || null;
+
+    return {
+      id: user.id,
+      email: user.email,
+      name,
+      phoneNumber: user.phoneNumber ?? null,
+      timezone: user.timezone ?? null
+    };
   }
 }

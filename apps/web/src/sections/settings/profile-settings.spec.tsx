@@ -77,6 +77,7 @@ describe('ProfileSettings', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    loadAudits.mockResolvedValue([]);
 
     mockUseProfile.mockReturnValue({
       profile,
@@ -143,7 +144,47 @@ describe('ProfileSettings', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /show audit history/i }));
 
-    await waitFor(() => expect(loadAudits).toHaveBeenCalled());
+    await waitFor(() => expect(loadAudits).toHaveBeenCalledWith(20));
+  });
+
+  it('loads additional audit history when requested', async () => {
+    const auditEntry = {
+      id: 'audit-1',
+      userId: profile.id,
+      actorId: 'actor-1',
+      actorEmail: 'admin@example.com',
+      actorName: 'Admin User',
+      createdAt: '2024-01-05T00:00:00.000Z',
+      changes: {
+        jobTitle: {
+          previous: 'Security Analyst',
+          current: 'Lead Analyst'
+        }
+      }
+    };
+
+    loadAudits
+      .mockResolvedValueOnce(Array.from({ length: 20 }, (_, index) => ({
+        ...auditEntry,
+        id: `audit-${index + 1}`
+      })))
+      .mockResolvedValueOnce(
+        Array.from({ length: 25 }, (_, index) => ({
+          ...auditEntry,
+          id: `audit-${index + 1}`
+        }))
+      );
+
+    renderComponent();
+
+    fireEvent.click(screen.getByRole('button', { name: /show audit history/i }));
+
+    await waitFor(() => expect(loadAudits).toHaveBeenCalledWith(20));
+
+    const loadMoreButton = await screen.findByRole('button', { name: /load more history/i });
+    fireEvent.click(loadMoreButton);
+
+    await waitFor(() => expect(loadAudits).toHaveBeenCalledWith(40));
   });
 
   it('allows administrators to update role', async () => {

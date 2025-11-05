@@ -373,7 +373,7 @@ describe('EvidenceService.confirmUpload', () => {
       storageKey: uploadRequest.storageKey,
       storageProvider: 'LOCAL',
       checksum: 'sha256:abcd',
-      requestedBy: user.email
+      requestedByEmail: user.email
     });
   });
 

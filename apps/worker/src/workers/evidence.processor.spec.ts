@@ -19,6 +19,9 @@ describe('EvidenceProcessor', () => {
     },
     evidenceStatusHistory: {
       create: jest.fn()
+    },
+    user: {
+      findUnique: jest.fn()
     }
   };
 
@@ -31,7 +34,8 @@ describe('EvidenceProcessor', () => {
   };
 
   const notificationsMock: any = {
-    notifyEvidence: jest.fn()
+    notifyEvidence: jest.fn(),
+    isEnabled: jest.fn(() => true)
   };
 
   const metricsMock: any = {
@@ -78,6 +82,7 @@ describe('EvidenceProcessor', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     queue.reset();
+    notificationsMock.isEnabled.mockReturnValue(true);
     processor = new EvidenceProcessor(
       prismaMock,
       fetcherMock,
@@ -94,6 +99,15 @@ describe('EvidenceProcessor', () => {
       organizationId: 'org-1',
       fileSize: 2048,
       originalFilename: 'artifact.pdf'
+    });
+
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: 'user-1',
+      email: 'analyst@example.com',
+      firstName: 'Cyra',
+      lastName: 'Analyst',
+      phoneNumber: '+1 555-0100',
+      timezone: 'America/New_York'
     });
 
     fetcherMock.fetch.mockResolvedValue({
@@ -122,7 +136,7 @@ describe('EvidenceProcessor', () => {
       storageKey: 'artifact.pdf',
       storageProvider: 'LOCAL',
       checksum: 'sha256:1234',
-      requestedBy: 'analyst@example.com'
+      requestedByEmail: 'analyst@example.com'
     });
 
     expect(result.quarantined).toBe(false);
@@ -188,7 +202,14 @@ describe('EvidenceProcessor', () => {
       expect.objectContaining({
         evidenceId: 'evidence-1',
         status: 'quarantined',
-        reason: 'Detected EICAR-Test-Signature'
+        reason: 'Detected EICAR-Test-Signature',
+        requestedBy: {
+          id: 'user-1',
+          email: 'analyst@example.com',
+          name: 'Cyra Analyst',
+          phoneNumber: '+1 555-0100',
+          timezone: 'America/New_York'
+        }
       })
     );
   });
@@ -215,5 +236,32 @@ describe('EvidenceProcessor', () => {
       })
     );
     expect(notificationsMock.notifyEvidence).toHaveBeenCalled();
+  });
+
+  it('avoids profile lookups when notifications are disabled', async () => {
+    notificationsMock.isEnabled.mockReturnValue(false);
+    antivirusMock.scan.mockRejectedValue(new AntivirusUnavailableError('Engine offline'));
+
+    await invoke({
+      evidenceId: 'evidence-1',
+      scanId: 'scan-4',
+      storageUri: 's3://bucket/artifact.pdf',
+      storageKey: 'artifact.pdf',
+      storageProvider: 'S3',
+      requestedByEmail: 'disabled@example.com'
+    });
+
+    expect(prismaMock.user.findUnique).not.toHaveBeenCalled();
+    expect(notificationsMock.notifyEvidence).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestedBy: {
+          id: null,
+          email: 'disabled@example.com',
+          name: null,
+          phoneNumber: null,
+          timezone: null
+        }
+      })
+    );
   });
 });

@@ -1,6 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+export interface NotificationUserProfile {
+  id: string | null;
+  email: string;
+  name: string | null;
+  phoneNumber: string | null;
+  timezone: string | null;
+}
+
 export interface EvidenceNotificationPayload {
   evidenceId: string;
   organizationId: string;
@@ -8,7 +16,7 @@ export interface EvidenceNotificationPayload {
   status: 'quarantined' | 'released';
   reason: string;
   findings?: Record<string, unknown>;
-  requestedBy?: string;
+  requestedBy?: NotificationUserProfile | null;
 }
 
 @Injectable()
@@ -24,6 +32,10 @@ export class NotificationService {
     >;
     this.endpoint = (notifications['endpoint'] as string | undefined) ?? null;
     this.channel = (notifications['evidenceChannel'] as string | undefined) ?? 'evidence-reviewers';
+  }
+
+  isEnabled(): boolean {
+    return Boolean(this.endpoint);
   }
 
   async notifyEvidence(payload: EvidenceNotificationPayload): Promise<void> {

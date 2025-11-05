@@ -106,5 +106,5 @@ export interface EvidenceIngestionJobPayload {
   storageKey: string;
   storageProvider: EvidenceStorageProvider;
   checksum?: string;
-  requestedBy?: string;
+  requestedByEmail?: string;
 }

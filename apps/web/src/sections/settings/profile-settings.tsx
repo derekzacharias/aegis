@@ -53,6 +53,21 @@ const formatChangeValue = (value: unknown) => {
   }
 };
 
+const fieldLabelOverrides: Record<string, string> = {
+  firstName: 'First name',
+  lastName: 'Last name',
+  jobTitle: 'Job title',
+  phoneNumber: 'Phone number',
+  timezone: 'Timezone',
+  avatarUrl: 'Avatar URL',
+  bio: 'Bio',
+  role: 'Role',
+  password: 'Password'
+};
+
+const formatChangeField = (field: string) =>
+  fieldLabelOverrides[field] ?? field.replace(/([A-Z])/g, ' $1').replace(/^./, (char) => char.toUpperCase());
+
 const roleOptions: Array<{ label: string; value: UserRole }> = [
   { label: 'Administrator', value: 'ADMIN' },
   { label: 'Analyst', value: 'ANALYST' },
@@ -82,6 +97,7 @@ const ProfileSettings = () => {
     confirmPassword: ''
   });
   const [loadingAudits, setLoadingAudits] = useState(false);
+  const [auditLimit, setAuditLimit] = useState(20);
   const { isOpen, onToggle } = useDisclosure();
 
   useEffect(() => {
@@ -182,13 +198,23 @@ const ProfileSettings = () => {
     }
 
     setLoadingAudits(true);
-    loadAudits()
+    loadAudits(auditLimit)
       .catch((error) => {
         // eslint-disable-next-line no-console
         console.error('Failed to load profile audits', error);
       })
       .finally(() => setLoadingAudits(false));
-  }, [isOpen, loadAudits, profile]);
+  }, [auditLimit, isOpen, loadAudits, profile]);
+
+  useEffect(() => {
+    if (!isOpen && auditLimit !== 20) {
+      setAuditLimit(20);
+    }
+  }, [auditLimit, isOpen]);
+
+  const handleLoadMoreAudits = () => {
+    setAuditLimit((previous) => previous + 20);
+  };
 
   if (!profile) {
     return (
@@ -379,27 +405,47 @@ const ProfileSettings = () => {
             ) : audits.length === 0 ? (
               <Text color="gray.500">No profile changes recorded yet.</Text>
             ) : (
-              <Stack spacing={4}>
-                {audits.map((entry) => (
-                  <Box key={entry.id} borderLeftWidth="2px" borderLeftColor="brand.500" pl={4}>
-                    <Text fontSize="sm" color="gray.500">
-                      {formatDateTime(entry.createdAt)}
-                    </Text>
-                    <Text fontWeight="semibold">
-                      {(entry.actorName ?? entry.actorEmail ?? 'System')} updated:
-                    </Text>
-                    <Stack spacing={1} mt={1} fontSize="sm">
-                      {Object.entries(entry.changes).map(([field, change]) => (
-                        <Text key={field}>
-                          <Text as="span" fontWeight="semibold">
-                            {field}:
-                          </Text>{' '}
-                          {formatChangeValue(change.previous)} → {formatChangeValue(change.current)}
+              <Stack spacing={6}>
+                {audits.map((entry) => {
+                  const actorLabel = entry.actorName ?? entry.actorEmail ?? 'System';
+                  const actorDetails = entry.actorEmail && entry.actorName && entry.actorEmail !== entry.actorName
+                    ? entry.actorEmail
+                    : entry.actorEmail ?? null;
+
+                  return (
+                    <Box key={entry.id} borderLeftWidth="2px" borderLeftColor="brand.500" pl={4}>
+                      <Stack spacing={1}>
+                        <Text fontWeight="semibold">{actorLabel}</Text>
+                        <Text fontSize="sm" color="gray.500">
+                          {formatDateTime(entry.createdAt)}
+                          {actorDetails ? ` • ${actorDetails}` : ''}
                         </Text>
-                      ))}
-                    </Stack>
-                  </Box>
-                ))}
+                      </Stack>
+                      <Stack spacing={1} mt={3} fontSize="sm">
+                        {Object.entries(entry.changes).map(([field, change]) => (
+                          <Text key={field}>
+                            <Text as="span" fontWeight="semibold">
+                              {formatChangeField(field)}:
+                            </Text>{' '}
+                            {field === 'password'
+                              ? 'Password updated'
+                              : `${formatChangeValue(change.previous)} → ${formatChangeValue(change.current)}`}
+                          </Text>
+                        ))}
+                      </Stack>
+                    </Box>
+                  );
+                })}
+                {audits.length >= auditLimit ? (
+                  <Button
+                    onClick={handleLoadMoreAudits}
+                    alignSelf="flex-start"
+                    isLoading={loadingAudits}
+                    variant="outline"
+                  >
+                    Load more history
+                  </Button>
+                ) : null}
               </Stack>
             )}
           </CardBody>

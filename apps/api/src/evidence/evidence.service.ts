@@ -623,7 +623,7 @@ export class EvidenceService {
       storageKey: evidence.storageKey,
       storageProvider: evidence.storageProvider,
       checksum: evidence.checksum ?? undefined,
-      requestedBy: user.email
+      requestedByEmail: user.email
     });
 
     this.logger.log(`Evidence ${evidence.id} queued for ingestion`);
@@ -701,7 +701,7 @@ export class EvidenceService {
       storageKey: evidence.storageKey,
       storageProvider: evidence.storageProvider,
       checksum: evidence.checksum ?? undefined,
-      requestedBy: user.email
+      requestedByEmail: user.email
     });
 
     this.logger.log(`Evidence ${evidence.id} re-scan queued (scan ${scan.id})`);
