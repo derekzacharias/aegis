@@ -78,6 +78,7 @@ model User {
   updatedFrameworks       Framework[]             @relation("FrameworkUpdater")
   createdControls         Control[]               @relation("ControlCreator")
   updatedControls         Control[]               @relation("ControlUpdater")
+  frameworkWarmups        FrameworkWarmupCache[]  @relation("FrameworkWarmupActor")
 }
 
 model UserInvite {
@@ -134,6 +135,7 @@ model Framework {
   assessmentMemberships AssessmentFramework[]
   evidenceMappings      EvidenceFramework[]
   policyVersionMappings PolicyVersionFramework[]
+  warmupCache           FrameworkWarmupCache?
 
   @@unique([organizationId, slug])
   @@unique([organizationId, name, version])
@@ -206,6 +208,20 @@ model ControlMappingEvidenceHint {
   rationale  String?
   score      Float          @default(0.5)
   createdAt  DateTime       @default(now())
+}
+
+model FrameworkWarmupCache {
+  id                    String    @id @default(cuid())
+  framework             Framework @relation(fields: [frameworkId], references: [id], onDelete: Cascade)
+  frameworkId           String    @unique
+  organizationId        String
+  crosswalkPayload      Json
+  controlCatalogPayload Json
+  generatedAt           DateTime  @default(now())
+  generatedBy           User?     @relation("FrameworkWarmupActor", fields: [generatedById], references: [id])
+  generatedById         String?
+
+  @@index([organizationId, generatedAt])
 }
 
 model AssessmentProject {
@@ -716,6 +732,7 @@ enum ScheduleType {
   EVIDENCE_REVIEW_REMINDER
   RECURRING_ASSESSMENT
   AGENT_HEALTH_CHECK
+  PROFILE_CONTACT_REMINDER
 }
 
 enum ScheduleFrequency {

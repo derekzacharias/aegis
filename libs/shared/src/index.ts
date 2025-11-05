@@ -1,4 +1,5 @@
 export * from './lib/framework.types';
+export * from './lib/framework.jobs';
 export * from './lib/assessment.types';
 export * from './lib/evidence.types';
 export * from './lib/policy.types';
@@ -10,3 +11,5 @@ export * from './lib/report.store';
 export * from './lib/scheduler.types';
 export * from './lib/tenant.types';
 export * from './lib/security.types';
+export * from './lib/framework.jobs';
+export * from './lib/crosswalk';

@@ -20,10 +20,13 @@ describe('CrosswalkService', () => {
   const controlMappingFindMany = jest.fn();
   const controlMappingUpsert = jest.fn();
 
+  const frameworkWarmupCacheFindUnique = jest.fn();
+
   const prisma = {
     framework: { findUnique: frameworkFindUnique },
     control: { findMany: controlFindMany, findUnique: controlFindUnique },
-    controlMapping: { findMany: controlMappingFindMany, upsert: controlMappingUpsert }
+    controlMapping: { findMany: controlMappingFindMany, upsert: controlMappingUpsert },
+    frameworkWarmupCache: { findUnique: frameworkWarmupCacheFindUnique }
   };
 
   let service: CrosswalkService;
@@ -34,6 +37,8 @@ describe('CrosswalkService', () => {
     controlFindUnique.mockReset();
     controlMappingFindMany.mockReset();
     controlMappingUpsert.mockReset();
+    frameworkWarmupCacheFindUnique.mockReset();
+    frameworkWarmupCacheFindUnique.mockResolvedValue(null);
     // @ts-expect-error lightweight prisma mock for unit tests
     service = new CrosswalkService(prisma);
   });
@@ -112,6 +117,44 @@ describe('CrosswalkService', () => {
     expect(suggestion?.target.id).toEqual('pci-8-2-6');
     expect(suggestion?.confidence).toBeGreaterThan(0.35);
     expect(suggestion?.tags.length).toBeGreaterThan(0);
+  });
+
+  it('uses cached warmup payload when available', async () => {
+    frameworkFindUnique.mockResolvedValue({ id: 'framework-a' });
+    frameworkWarmupCacheFindUnique.mockResolvedValue({
+      crosswalkPayload: {
+        frameworkId: 'framework-a',
+        generatedAt: new Date().toISOString(),
+        total: 2,
+        matches: [
+          {
+            id: 'mapped-1',
+            source: { id: 'ac-1', frameworkId: 'framework-a', title: 'Access', family: 'AC', metadata: {} },
+            target: {
+              id: 'cis-1',
+              frameworkId: 'framework-b',
+              title: 'CIS 1',
+              family: 'CIS',
+              metadata: {}
+            },
+            confidence: 0.9,
+            origin: 'SEED',
+            tags: [],
+            rationale: 'seed',
+            evidenceHints: [],
+            status: 'mapped'
+          }
+        ],
+        filters: {}
+      },
+      generatedAt: new Date('2024-01-01T00:00:00.000Z')
+    });
+
+    const result = await service.generateCrosswalk('framework-a', { targetFrameworkId: 'framework-b' });
+
+    expect(controlFindMany).not.toHaveBeenCalled();
+    expect(result.total).toEqual(1);
+    expect(result.matches[0].target.frameworkId).toEqual('framework-b');
   });
 
   it('prevents manual mappings that target the same framework', async () => {

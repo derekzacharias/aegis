@@ -1,10 +1,13 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { FrameworkService } from './framework.service';
+import { FRAMEWORK_PUBLISH_JOB, JobQueue } from '@compliance/shared';
 import { PrismaService } from '../prisma/prisma.service';
 
 describe('FrameworkService', () => {
   let service: FrameworkService;
   let prisma: any;
+  let queueMock: JobQueue;
+  let queueStub: any;
 
   beforeEach(() => {
     prisma = {
@@ -38,10 +41,34 @@ describe('FrameworkService', () => {
         count: jest.fn(),
         deleteMany: jest.fn()
       },
+      frameworkWarmupCache: {
+        deleteMany: jest.fn(),
+        findUnique: jest.fn()
+      },
+      user: {
+        findUnique: jest.fn()
+      },
       $transaction: jest.fn().mockImplementation(async (callback: any) => callback(prisma))
     };
 
-    service = new FrameworkService(prisma as PrismaService);
+    queueStub = {
+      registerProcessor: jest.fn(),
+      unregisterProcessor: jest.fn(),
+      on: jest.fn(),
+      off: jest.fn(),
+      enqueue: jest.fn(),
+      list: jest.fn().mockReturnValue([]),
+      get: jest.fn().mockReturnValue(null),
+      reset: jest.fn()
+    };
+
+    queueMock = queueStub as unknown as JobQueue;
+
+    service = new FrameworkService(prisma as PrismaService, queueMock);
+
+    prisma.frameworkWarmupCache.findUnique.mockResolvedValue(null);
+
+    // attach for expectations
   });
 
   afterEach(() => {
@@ -78,6 +105,65 @@ describe('FrameworkService', () => {
     expect(result).toHaveLength(1);
     expect(result[0].id).toEqual('nist-800-53-rev5');
     expect(result[0].status).toEqual('PUBLISHED');
+  });
+
+  it('uses warmup cache for default control catalog requests', async () => {
+    prisma.framework.findFirst.mockResolvedValue({
+      id: 'framework-1',
+      organizationId: 'org-1',
+      status: 'PUBLISHED',
+      name: 'Custom',
+      version: '1.0',
+      description: 'desc',
+      family: 'CUSTOM',
+      isCustom: true,
+      controlCount: 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      publishedAt: new Date()
+    });
+
+    prisma.frameworkWarmupCache.findUnique.mockResolvedValue({
+      controlCatalogPayload: {
+        frameworkId: 'framework-1',
+        framework: {
+          id: 'framework-1',
+          slug: 'fw-1',
+          name: 'Custom',
+          version: '1.0',
+          description: 'desc',
+          family: 'CUSTOM',
+          status: 'PUBLISHED',
+          isCustom: true,
+          controlCount: 1,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          publishedAt: new Date().toISOString()
+        },
+        total: 1,
+        page: 1,
+        pageSize: 25,
+        hasNextPage: false,
+        items: [],
+        facets: {
+          families: [],
+          priorities: [],
+          kinds: [],
+          statuses: []
+        }
+      }
+    });
+
+    const result = await service.listControls('org-1', 'framework-1', {} as any);
+
+    expect(prisma.frameworkWarmupCache.findUnique).toHaveBeenCalledWith({
+      where: { frameworkId: 'framework-1' },
+      select: {
+        controlCatalogPayload: true,
+        generatedAt: true
+      }
+    });
+    expect(result.total).toEqual(1);
   });
 
   it('falls back to seeded frameworks when none are persisted', async () => {
@@ -252,6 +338,13 @@ describe('FrameworkService', () => {
       metadata: { wizard: { completedAt: '2024-05-02T00:00:00.000Z' } },
       organizationId: 'org-1'
     } as any);
+    prisma.frameworkWarmupCache.deleteMany.mockResolvedValue({ count: 0 });
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'user-1',
+      email: 'analyst@example.com',
+      firstName: 'Ana',
+      lastName: 'Lyst'
+    });
 
     const result = await service.publishFramework('org-1', 'framework-1', 'user-1', {
       metadata: { wizard: { completedAt: '2024-05-02T00:00:00.000Z' } }
@@ -267,6 +360,23 @@ describe('FrameworkService', () => {
       }
     });
     expect(result.status).toEqual('PUBLISHED');
+    expect(prisma.frameworkWarmupCache.deleteMany).toHaveBeenCalledWith({ where: { frameworkId: 'framework-1' } });
+    expect(queueStub.enqueue).toHaveBeenCalledWith(
+      FRAMEWORK_PUBLISH_JOB,
+      expect.objectContaining({
+        frameworkId: 'framework-1',
+        organizationId: 'org-1',
+        frameworkName: 'Custom Framework',
+        frameworkVersion: '1.0',
+        publishedAt: expect.any(String),
+        actor: {
+          userId: 'user-1',
+          email: 'analyst@example.com',
+          name: 'Ana Lyst'
+        },
+        attempt: 1
+      })
+    );
   });
 
   it('deletes a custom framework when no dependencies exist', async () => {

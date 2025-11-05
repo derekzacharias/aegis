@@ -9,6 +9,7 @@ import {
   EvidenceReuseHint
 } from './framework.types';
 import { UpsertCrosswalkMappingDto } from './dto/upsert-crosswalk-mapping.dto';
+import { generateCrosswalkCandidates } from '@compliance/shared';
 
 const STOP_WORDS = new Set<string>([
   'a',
@@ -38,13 +39,6 @@ type CrosswalkFilters = {
   minConfidence?: number;
 };
 
-type TokenProfile = {
-  control: Control;
-  tokens: string[];
-  termSet: Set<string>;
-  vector: Map<string, number>;
-};
-
 @Injectable()
 export class CrosswalkService {
   private readonly maxSuggestionsPerControl = 3;
@@ -58,6 +52,35 @@ export class CrosswalkService {
 
     if (!sourceFramework) {
       throw new NotFoundException(`Framework ${frameworkId} not found`);
+    }
+
+    const warmup = await this.prisma.frameworkWarmupCache.findUnique({
+      where: { frameworkId },
+      select: {
+        crosswalkPayload: true,
+        generatedAt: true
+      }
+    });
+
+    if (warmup?.crosswalkPayload) {
+      const cached = warmup.crosswalkPayload as unknown as CrosswalkResponse;
+      const filteredMatches = cached.matches.filter((match) => {
+        if (filters.targetFrameworkId && match.target.frameworkId !== filters.targetFrameworkId) {
+          return false;
+        }
+        if (filters.minConfidence !== undefined && match.confidence < filters.minConfidence) {
+          return false;
+        }
+        return true;
+      });
+
+      return {
+        ...cached,
+        generatedAt: warmup.generatedAt.toISOString(),
+        matches: filteredMatches,
+        total: filteredMatches.length,
+        filters
+      };
     }
 
     const [sourceControls, targetControls, persistedMappings] = await Promise.all([
@@ -193,65 +216,63 @@ export class CrosswalkService {
       return [];
     }
 
-    const sourceProfiles = sourceControls
-      .map((control) => this.buildTokenProfile(control))
-      .filter((profile): profile is TokenProfile => profile.tokens.length > 0);
-
-    const targetProfiles = targetControls
-      .map((control) => this.buildTokenProfile(control))
-      .filter((profile): profile is TokenProfile => profile.tokens.length > 0);
-
     const suggestions: CrosswalkMatch[] = [];
+    const sourceLookup = new Map(sourceControls.map((control) => [control.id, control]));
+    const targetLookup = new Map(targetControls.map((control) => [control.id, control]));
 
-    for (const profile of sourceProfiles) {
-      const candidates = targetProfiles
-        .map((target) => {
-          const key = this.buildKey(profile.control.id, target.control.id);
-
-          if (existingPairs.has(key)) {
-            return null;
-          }
-
-          const score = this.cosine(profile.vector, target.vector);
-
-          if (Number.isNaN(score) || score < minConfidence) {
-            return null;
-          }
-
-          const matchedTerms = this.intersection(profile.termSet, target.termSet).slice(0, 5);
-
-          return {
-            target,
-            score,
-            matchedTerms
-          };
-        })
-        .filter((candidate): candidate is { target: TokenProfile; score: number; matchedTerms: string[] } => candidate !== null)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, this.maxSuggestionsPerControl);
-
-      for (const candidate of candidates) {
-        const normalizedScore = Number(candidate.score.toFixed(3));
-        const tags = this.normalizeTags(candidate.matchedTerms).slice(0, 3);
-        const match: CrosswalkMatch = {
-          id: `suggested:${profile.control.id}:${candidate.target.control.id}`,
-          source: this.toControlReference(profile.control),
-          target: this.toControlReference(candidate.target.control),
-          confidence: normalizedScore,
-          origin: 'ALGO',
-          tags,
-          rationale: `Suggested via keyword similarity. Score ${normalizedScore}.`,
-          evidenceHints: [],
-          status: 'suggested',
-          similarityBreakdown: {
-            score: normalizedScore,
-            matchedTerms: candidate.matchedTerms
-          }
-        };
-
-        suggestions.push(match);
-        existingPairs.add(this.buildKey(profile.control.id, candidate.target.control.id));
+    const candidates = generateCrosswalkCandidates(
+      sourceControls.map((control) => ({
+        id: control.id,
+        frameworkId: control.frameworkId,
+        title: control.title,
+        description: control.description ?? null,
+        family: control.family ?? null
+      })),
+      targetControls.map((control) => ({
+        id: control.id,
+        frameworkId: control.frameworkId,
+        title: control.title,
+        description: control.description ?? null,
+        family: control.family ?? null
+      })),
+      {
+        maxSuggestionsPerControl: this.maxSuggestionsPerControl,
+        minConfidence
       }
+    );
+
+    for (const candidate of candidates) {
+      const source = sourceLookup.get(candidate.sourceControlId);
+      const target = targetLookup.get(candidate.targetControlId);
+
+      if (!source || !target) {
+        continue;
+      }
+
+      const key = this.buildKey(candidate.sourceControlId, candidate.targetControlId);
+      if (existingPairs.has(key)) {
+        continue;
+      }
+
+      const normalizedScore = Number(candidate.confidence.toFixed(3));
+      const tags = this.normalizeTags(candidate.sharedTerms).slice(0, 3);
+      suggestions.push({
+        id: `suggested:${source.id}:${target.id}`,
+        source: this.toControlReference(source),
+        target: this.toControlReference(target),
+        confidence: normalizedScore,
+        origin: 'ALGO',
+        tags,
+        rationale: `Suggested via keyword similarity. Score ${normalizedScore}.`,
+        evidenceHints: [],
+        status: 'suggested',
+        similarityBreakdown: {
+          score: normalizedScore,
+          matchedTerms: candidate.sharedTerms
+        }
+      });
+
+      existingPairs.add(key);
     }
 
     return suggestions;
@@ -303,78 +324,6 @@ export class CrosswalkService {
       return undefined;
     }
     return value as Record<string, unknown>;
-  }
-
-  private buildTokenProfile(control: Control): TokenProfile {
-    const rawText = [control.id, control.title, control.description, control.family]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase();
-
-    const tokens = rawText
-      .split(/[^a-z0-9]+/g)
-      .map((token) => token.trim())
-      .filter((token) => token.length > 2 && !STOP_WORDS.has(token));
-
-    const vector = new Map<string, number>();
-
-    for (const token of tokens) {
-      vector.set(token, (vector.get(token) ?? 0) + 1);
-    }
-
-    const termSet = new Set(tokens);
-
-    return {
-      control,
-      tokens,
-      termSet,
-      vector
-    };
-  }
-
-  private cosine(left: Map<string, number>, right: Map<string, number>): number {
-    let dotProduct = 0;
-    let leftMagnitudeSquared = 0;
-    let rightMagnitudeSquared = 0;
-
-    for (const value of left.values()) {
-      leftMagnitudeSquared += value * value;
-    }
-
-    for (const value of right.values()) {
-      rightMagnitudeSquared += value * value;
-    }
-
-    const smaller = left.size < right.size ? left : right;
-    const larger = smaller === left ? right : left;
-
-    for (const [term, value] of smaller.entries()) {
-      const other = larger.get(term);
-      if (other) {
-        dotProduct += value * other;
-      }
-    }
-
-    const denominator = Math.sqrt(leftMagnitudeSquared) * Math.sqrt(rightMagnitudeSquared);
-
-    if (denominator === 0) {
-      return 0;
-    }
-
-    return dotProduct / denominator;
-  }
-
-  private intersection(left: Set<string>, right: Set<string>): string[] {
-    const [smaller, larger] = left.size < right.size ? [left, right] : [right, left];
-    const matches: string[] = [];
-
-    for (const term of smaller) {
-      if (larger.has(term)) {
-        matches.push(term);
-      }
-    }
-
-    return matches;
   }
 
   private normalizeTags(tags?: string[]): string[] {
