@@ -1,0 +1,26 @@
+version: "3.10"
+
+services:
+  mcp-iac:
+    build:
+      context: ./aegis-mcp-iac
+      dockerfile: Dockerfile
+    image: aegis/mcp-iac:dev
+    environment:
+      MCP_IAC_TOKEN: ${MCP_IAC_TOKEN:-dev-token}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../..:/workspace:ro
+
+  mcp-aws-readonly:
+    build:
+      context: ./aegis-mcp-aws-readonly
+      dockerfile: Dockerfile
+    image: aegis/mcp-aws-readonly:dev
+    environment:
+      MCP_AWS_TOKEN: ${MCP_AWS_TOKEN:-dev-token}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+    ports:
+      - "8001:8000"

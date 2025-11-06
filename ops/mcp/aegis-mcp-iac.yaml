@@ -1,0 +1,190 @@
+version: "0.1"
+metadata:
+  id: aegis-mcp-iac
+  name: IaC Policy Guard MCP Server
+  description: >
+    Exposes Terraform and IaC policy validation utilities so LangChain agents can
+    detect and remediate risky infrastructure configurations (0.0.0.0/0 ingress,
+    IAM wildcard permissions, publicly exposed S3 buckets).
+  owner: aegis-platform
+  links:
+    repo: https://github.com/aegis-platform/infrastructure
+    runbook: docs/automation/iac-policy-guard.md
+
+runtime:
+  language: python3.11
+  entrypoint: src/aegis_mcp_iac/server.py
+  package_manager: pip
+  dependencies:
+    - langchain>=0.1.0
+    - mcp-sdk>=0.1.0
+    - boto3>=1.34.0
+    - terraform-compliance>=1.3.0
+  system_requirements:
+    terraform: ">=1.5.0"
+    git: ">=2.40.0"
+
+auth:
+  environment:
+    - name: AWS_REGION
+      required: true
+      description: AWS region used for any account context lookups.
+    - name: AWS_PROFILE
+      required: false
+      description: Optional named profile for Terraform backends.
+    - name: MCP_IAC_TOKEN
+      required: true
+      description: Short-lived token rotated by automation for access control.
+
+permissions:
+  filesystem:
+    read:
+      - ${WORKSPACE}
+      - ${TMPDIR}
+    write:
+      - ${TMPDIR}
+  network:
+    outbound:
+      - sts.amazonaws.com
+      - iam.amazonaws.com
+      - s3.amazonaws.com
+  execution:
+    allowlist:
+      - terraform
+      - python3
+
+tools:
+  - name: terraform_validate
+    description: >
+      Runs `terraform validate` with JSON diagnostics enabled. Returns structured
+      error information for the agent to summarize.
+    command: terraform
+    arguments:
+      - validate
+      - -json
+    options:
+      working_directory:
+        type: string
+        required: true
+        description: Absolute path to the Terraform root module.
+    output:
+      schema: >
+        JSON object mirroring Terraform `-json` diagnostics.
+      error_handling:
+        non_zero_exit: Capture stderr/stdout and surface as tool error payload.
+
+  - name: check_security_groups
+    description: >
+      Parses Terraform plan or state to identify security group rules permitting
+      0.0.0.0/0 ingress or other overly permissive CIDRs.
+    entrypoint: python3
+    script: src/aegis_mcp_iac/tools/check_security_groups.py
+    options:
+      plan_path:
+        type: string
+        required: false
+        description: Path to a Terraform plan JSON file; if omitted a plan is generated.
+      state_path:
+        type: string
+        required: false
+        description: Path to Terraform state JSON. Used when no plan is provided.
+    output:
+      schema: >
+        {
+          "findings": [
+            {
+              "resource": "aws_security_group.example",
+              "rule_id": "ingress-123",
+              "cidr": "0.0.0.0/0",
+              "port_range": "0-65535",
+              "severity": "CRITICAL",
+              "recommendation": "Restrict ingress CIDR to approved ranges."
+            }
+          ]
+        }
+
+  - name: check_iam_wildcards
+    description: >
+      Detects IAM policies that grant `*` actions or resources and returns aligned
+      remediation guidance mapped to NIST CM-6.
+    entrypoint: python3
+    script: src/aegis_mcp_iac/tools/check_iam_wildcards.py
+    options:
+      policy_documents:
+        type: array
+        items: string
+        required: false
+        description: List of file paths containing IAM JSON policies. Defaults to scanning Terraform plan output.
+    output:
+      schema: >
+        {
+          "findings": [
+            {
+              "resource": "aws_iam_policy.deployment",
+              "statement": "Stmt123456",
+              "action": "*",
+              "resource_scope": "*",
+              "severity": "HIGH",
+              "nist_controls": ["CM-6"],
+              "recommendation": "Replace wildcard action with least privilege statement."
+            }
+          ]
+        }
+
+  - name: check_s3_public
+    description: >
+      Evaluates Terraform-managed S3 buckets for public ACLs, bucket policies, or
+      disabled block-public-access settings. Surfaces findings with remediation steps.
+    entrypoint: python3
+    script: src/aegis_mcp_iac/tools/check_s3_public.py
+    options:
+      bucket_names:
+        type: array
+        items: string
+        required: false
+        description: Override list of buckets to evaluate (default derives from plan).
+    output:
+      schema: >
+        {
+          "findings": [
+            {
+              "resource": "aws_s3_bucket.logs",
+              "issue": "Bucket ACL grants public-read.",
+              "severity": "HIGH",
+              "nist_controls": ["CM-2"],
+              "recommendation": "Enable block public access and restrict ACL."
+            }
+          ]
+        }
+
+outputs:
+  logging:
+    level: info
+    destinations:
+      - stdout
+      - file://${TMPDIR}/aegis-mcp-iac.log
+  metrics:
+    enabled: true
+    namespace: aegis/iac-policy-guard
+    exporters:
+      - type: prometheus
+        endpoint: http://127.0.0.1:9464/metrics
+
+health_checks:
+  - name: terraform_available
+    command: terraform version
+  - name: token_valid
+    entrypoint: python3
+    script: src/aegis_mcp_iac/health/check_token.py
+
+events:
+  - name: findings.generated
+    description: Published whenever a tool returns violations; consumed by GitHub PR annotator.
+    payload_schema: >
+      {
+        "tool": "check_security_groups",
+        "severity": "CRITICAL",
+        "summary": "Security group sg-123 allows 0.0.0.0/0 on port 22.",
+        "recommendation": "...",
+        "nist_controls": ["CM-2", "CM-6"]
+      }

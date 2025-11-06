@@ -63,6 +63,7 @@ import {
 } from 'react';
 import {
   FiDownload,
+  FiArrowRight,
   FiEdit,
   FiEye,
   FiLink,
@@ -91,6 +92,13 @@ const statusMeta: Record<
   APPROVED: { label: 'Approved', color: 'green' },
   ARCHIVED: { label: 'Archived', color: 'gray' },
   QUARANTINED: { label: 'Quarantined', color: 'red' }
+};
+
+const getStatusBadgeMeta = (status: EvidenceStatus | null): { label: string; color: string } => {
+  if (!status) {
+    return { label: 'New', color: 'gray' };
+  }
+  return statusMeta[status];
 };
 
 const formatSize = (bytes: number) => {
@@ -839,6 +847,52 @@ const EvidencePage = () => {
                     )}
                   </VStack>
                 </Box>
+                {item.statusHistory.length > 0 && (
+                  <Box borderWidth="1px" borderColor={cardBorder} borderRadius="md" p={3}>
+                    <VStack align="start" spacing={2} width="full">
+                      <Text fontSize="xs" color="gray.500">
+                        Status history
+                      </Text>
+                      <Stack spacing={3} width="100%">
+                        {item.statusHistory.map((entry) => {
+                          const fromMeta = entry.fromStatus ? getStatusBadgeMeta(entry.fromStatus) : null;
+                          const toMeta = getStatusBadgeMeta(entry.toStatus);
+                          const note =
+                            entry.note?.trim() || `Status changed to ${toMeta.label}.`;
+                          const actor =
+                            entry.changedBy?.name ||
+                            entry.changedBy?.email ||
+                            'System automation';
+
+                          return (
+                            <Box key={entry.id}>
+                              <HStack spacing={2} align="center" flexWrap="wrap">
+                                {fromMeta && (
+                                  <Badge colorScheme={fromMeta.color} fontSize="0.65rem">
+                                    {fromMeta.label}
+                                  </Badge>
+                                )}
+                                {fromMeta && <Icon as={FiArrowRight} boxSize={3} color="gray.400" />}
+                                <Badge colorScheme={toMeta.color} fontSize="0.65rem">
+                                  {toMeta.label}
+                                </Badge>
+                                <Text fontSize="xs" color="gray.500">
+                                  {formatHistoryTimestamp(entry.changedAt)}
+                                </Text>
+                              </HStack>
+                              <Text fontSize="sm" color="gray.600" mt={1}>
+                                {note}
+                              </Text>
+                              <Text fontSize="xs" color="gray.500">
+                                {actor}
+                              </Text>
+                            </Box>
+                          );
+                        })}
+                      </Stack>
+                    </VStack>
+                  </Box>
+                )}
                 {item.controlIds.length > 0 && (
                   <Text fontSize="sm" color="gray.400">
                     Controls: {item.controlIds.join(', ')}
@@ -1364,5 +1418,9 @@ const formatScanTimestamp = (value: string | null) => {
   if (!value) {
     return 'Not scanned yet';
   }
+  return new Date(value).toLocaleString();
+};
+
+const formatHistoryTimestamp = (value: string) => {
   return new Date(value).toLocaleString();
 };

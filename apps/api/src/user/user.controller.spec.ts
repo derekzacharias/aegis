@@ -2,7 +2,7 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { APP_GUARD, Reflector } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { UserProfile, UserProfileAuditEntry } from '@compliance/shared';
+import { UserProfile, UserProfileAuditEntry, UserRefreshFailure } from '@compliance/shared';
 import { UserRole } from '@prisma/client';
 import { ROLES_KEY } from '../auth/decorators/roles.decorator';
 import { AuthenticatedUser } from '../auth/types/auth.types';
@@ -47,6 +47,19 @@ describe('UserController (integration)', () => {
     }
   ];
 
+  const refreshFailures: UserRefreshFailure[] = [
+    {
+      id: 'failure-1',
+      userId: 'user-2',
+      email: 'reports-agent@aegis.local',
+      name: 'Reports Agent',
+      reason: 'hash-mismatch',
+      metadata: { attempt: 'refresh' },
+      occurredAt: new Date().toISOString(),
+      isServiceUser: true
+    }
+  ];
+
   let currentUser: AuthenticatedUser = {
     id: 'user-1',
     email: 'analyst@example.com',
@@ -84,6 +97,7 @@ describe('UserController (integration)', () => {
       updateProfile: jest.fn().mockResolvedValue(profile),
       changePassword: jest.fn().mockResolvedValue(undefined),
       listAuditEntries: jest.fn().mockResolvedValue(audits),
+      listRefreshFailures: jest.fn().mockResolvedValue(refreshFailures),
       updateUserRole: jest.fn().mockResolvedValue({ ...profile, role: 'ADMIN' })
     } as unknown as jest.Mocked<UserService>;
 
@@ -154,6 +168,29 @@ describe('UserController (integration)', () => {
     expect(response.status).toBe(200);
     expect(userService.listAuditEntries).toHaveBeenCalledWith('user-1', 20);
     expect(response.body).toHaveLength(1);
+  });
+
+  it('blocks non-admin users from viewing refresh failures', async () => {
+    const response = await request(app.getHttpServer()).get('/users/refresh-failures');
+
+    expect(response.status).toBe(403);
+    expect(userService.listRefreshFailures).not.toHaveBeenCalled();
+  });
+
+  it('allows administrators to view refresh failures', async () => {
+    currentUser = {
+      id: 'admin-1',
+      email: 'admin@example.com',
+      organizationId: 'org-1',
+      role: 'ADMIN'
+    } as AuthenticatedUser;
+
+    const response = await request(app.getHttpServer()).get('/users/refresh-failures');
+
+    expect(response.status).toBe(200);
+    expect(userService.listRefreshFailures).toHaveBeenCalledWith(currentUser, 20);
+    expect(response.body).toHaveLength(1);
+    expect(response.body[0]).toMatchObject({ reason: 'hash-mismatch' });
   });
 
   it('prevents non-admin users from changing roles', async () => {

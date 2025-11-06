@@ -812,34 +812,227 @@ const IntegrationsSettings = () => {
       </Stack>
 
       <Heading size="md">Automation Agents</Heading>
-      <Box borderWidth="1px" borderRadius="lg" p={5}>
-        <Stack direction={{ base: 'column', md: 'row' }} justify="space-between" spacing={4}>
-          <Box>
-            <Heading size="sm">CIS Benchmark Agent</Heading>
-            <Text color="gray.400" fontSize="sm">
-              Deploy lightweight agent scripts to gather CIS compliance evidence from GovCloud
-              workloads on a recurring cadence.
-            </Text>
-          </Box>
-          <Stack spacing={2} align="flex-end">
-            <FormControl display="flex" alignItems="center">
-              <FormLabel htmlFor="cis-agent" mb="0" fontWeight="semibold">
-                Enable
-              </FormLabel>
-              <Switch id="cis-agent" colorScheme="brand" defaultChecked />
-            </FormControl>
-            <Button
-              as="a"
-              href="/downloads/cis-benchmark-agent.tar.gz"
-              download
-              variant="outline"
-              colorScheme="brand"
-            >
-              Download Agent Package
-            </Button>
+      <Stack spacing={5}>
+        <Box borderWidth="1px" borderRadius="lg" p={5}>
+          <Stack spacing={4}>
+            <Stack direction={{ base: 'column', md: 'row' }} justify="space-between" spacing={4}>
+              <Box>
+                <Heading size="sm">IaC Policy Guard</Heading>
+                <Text color="gray.400" fontSize="sm">
+                  Run Terraform validation, tfsec checks, and MCP remediation patches on every pull request.
+                  Aligns findings to NIST CM-2/CM-6 and blocks merges when high-risk misconfigurations are detected.
+                </Text>
+              </Box>
+              <FormControl display="flex" alignItems="center" w={{ base: 'full', md: 'auto' }}>
+                <FormLabel htmlFor="iac-policy-guard-toggle" mb="0" fontWeight="semibold">
+                  Enable PR gating
+                </FormLabel>
+                <Switch id="iac-policy-guard-toggle" colorScheme="brand" defaultChecked />
+              </FormControl>
+            </Stack>
+            <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+              <FormControl>
+                <FormLabel>MCP Endpoint</FormLabel>
+                <Input placeholder="https://mcp.internal/iac" />
+              </FormControl>
+              <FormControl>
+                <FormLabel>GitHub App Installation ID</FormLabel>
+                <Input placeholder="123456" />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Findings Bucket (S3)</FormLabel>
+                <Input placeholder="s3://aegis-iac-findings" />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Default Reviewer Group</FormLabel>
+                <Input placeholder="cloud-security@aegis.local" />
+              </FormControl>
+            </SimpleGrid>
+            <Stack direction={{ base: 'column', md: 'row' }} spacing={3} justify="flex-end">
+              <Button variant="outline" colorScheme="brand">
+                Download Agent Package
+              </Button>
+              <Button colorScheme="brand">Save Policy Guard Settings</Button>
+            </Stack>
           </Stack>
-        </Stack>
-      </Box>
+        </Box>
+
+        <Box borderWidth="1px" borderRadius="lg" p={5}>
+          <Stack spacing={4}>
+            <Stack direction={{ base: 'column', md: 'row' }} justify="space-between" spacing={4}>
+              <Box>
+                <Heading size="sm">AWS Read-Only Posture Scan</Heading>
+                <Text color="gray.400" fontSize="sm">
+                  Schedule Prowler-backed assessments that enumerate IAM wildcards, public S3 buckets,
+                  and open security groups. Outputs STIX 2.1 bundles for MISP/OpenCTI.
+                </Text>
+              </Box>
+              <FormControl display="flex" alignItems="center" w={{ base: 'full', md: 'auto' }}>
+                <FormLabel htmlFor="aws-posture-toggle" mb="0" fontWeight="semibold">
+                  Daily scan
+                </FormLabel>
+                <Switch id="aws-posture-toggle" colorScheme="brand" defaultChecked />
+              </FormControl>
+            </Stack>
+            <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+              <FormControl>
+                <FormLabel>Read-only Role ARN</FormLabel>
+                <Input placeholder="arn:aws:iam::123456789012:role/aegis-readonly" />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Results Bucket</FormLabel>
+                <Input placeholder="s3://aegis-posture-reports" />
+              </FormControl>
+              <FormControl>
+                <FormLabel>OpenSearch Endpoint</FormLabel>
+                <Input placeholder="https://search-aegis-domain.us-gov-west-1.es.amazonaws.com" />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Notification Channel</FormLabel>
+                <Input placeholder="slack://#cloud-posture" />
+              </FormControl>
+            </SimpleGrid>
+            <Stack direction={{ base: 'column', md: 'row' }} spacing={3} justify="flex-end">
+              <Button variant="outline" colorScheme="brand">
+                Download IAM Policy Template
+              </Button>
+              <Button colorScheme="brand">Save AWS Scan Settings</Button>
+            </Stack>
+          </Stack>
+        </Box>
+
+        <Box borderWidth="1px" borderRadius="lg" p={5}>
+          <Stack spacing={4}>
+            <Stack direction={{ base: 'column', md: 'row' }} justify="space-between" spacing={4}>
+              <Box>
+                <Heading size="sm">Elastic Alert Summarizer</Heading>
+                <Text color="gray.400" fontSize="sm">
+                  Gather context for Elastic alerts, correlate related events, and auto-file Jira tickets
+                  with incident timelines and IOC highlights.
+                </Text>
+              </Box>
+              <FormControl display="flex" alignItems="center" w={{ base: 'full', md: 'auto' }}>
+                <FormLabel htmlFor="elastic-summarizer-toggle" mb="0" fontWeight="semibold">
+                  Auto triage
+                </FormLabel>
+                <Switch id="elastic-summarizer-toggle" colorScheme="brand" defaultChecked />
+              </FormControl>
+            </Stack>
+            <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+              <FormControl>
+                <FormLabel>Elastic Base URL</FormLabel>
+                <Input placeholder="https://elastic.aegis.local:9200" />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Jira Project Key</FormLabel>
+                <Input placeholder="IR" />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Slack / Teams Channel</FormLabel>
+                <Input placeholder="slack://#soc-alerts" />
+              </FormControl>
+              <FormControl>
+                <FormLabel>MTTR Dashboard Index</FormLabel>
+                <Input placeholder="aegis-mttr-metrics" />
+              </FormControl>
+            </SimpleGrid>
+            <Stack direction={{ base: 'column', md: 'row' }} spacing={3} justify="flex-end">
+              <Button variant="outline" colorScheme="brand">
+                Test Connection
+              </Button>
+              <Button colorScheme="brand">Save Summarizer Settings</Button>
+            </Stack>
+          </Stack>
+        </Box>
+
+        <Box borderWidth="1px" borderRadius="lg" p={5}>
+          <Stack spacing={4}>
+            <Stack direction={{ base: 'column', md: 'row' }} justify="space-between" spacing={4}>
+              <Box>
+                <Heading size="sm">Credential Leak Detector</Heading>
+                <Text color="gray.400" fontSize="sm">
+                  Scan pull requests with TruffleHog / Gitleaks via MCP, block merges on critical findings,
+                  and stream events to the SIEM.
+                </Text>
+              </Box>
+              <FormControl display="flex" alignItems="center" w={{ base: 'full', md: 'auto' }}>
+                <FormLabel htmlFor="credential-leak-toggle" mb="0" fontWeight="semibold">
+                  Block merges
+                </FormLabel>
+                <Switch id="credential-leak-toggle" colorScheme="brand" defaultChecked />
+              </FormControl>
+            </Stack>
+            <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+              <FormControl>
+                <FormLabel>Severity Threshold</FormLabel>
+                <Input placeholder="High" />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Notification Webhook</FormLabel>
+                <Input placeholder="https://hooks.slack.com/services/xxx/yyy/zzz" />
+              </FormControl>
+              <FormControl>
+                <FormLabel>SIEM Index</FormLabel>
+                <Input placeholder="aegis-credential-leaks" />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Allowed Secret Patterns</FormLabel>
+                <Input placeholder="^SOPS_" />
+              </FormControl>
+            </SimpleGrid>
+            <Stack direction={{ base: 'column', md: 'row' }} spacing={3} justify="flex-end">
+              <Button variant="outline" colorScheme="brand">
+                Edit Detection Rules
+              </Button>
+              <Button colorScheme="brand">Save Leak Detector Settings</Button>
+            </Stack>
+          </Stack>
+        </Box>
+
+        <Box borderWidth="1px" borderRadius="lg" p={5}>
+          <Stack spacing={4}>
+            <Stack direction={{ base: 'column', md: 'row' }} justify="space-between" spacing={4}>
+              <Box>
+                <Heading size="sm">Runbook Responder</Heading>
+                <Text color="gray.400" fontSize="sm">
+                  Serve real-time incident guidance from the runbook vector store, capture operator confirmations,
+                  and log activity to the audit dashboard.
+                </Text>
+              </Box>
+              <FormControl display="flex" alignItems="center" w={{ base: 'full', md: 'auto' }}>
+                <FormLabel htmlFor="runbook-responder-toggle" mb="0" fontWeight="semibold">
+                  Enable assistant
+                </FormLabel>
+                <Switch id="runbook-responder-toggle" colorScheme="brand" defaultChecked />
+              </FormControl>
+            </Stack>
+            <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+              <FormControl>
+                <FormLabel>Vector Store URI</FormLabel>
+                <Input placeholder="qdrant://runbooks-prod" />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Teams Bot Endpoint</FormLabel>
+                <Input placeholder="https://teams.aegis.local/bot/runbook" />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Audit Log Index</FormLabel>
+                <Input placeholder="elastic://aegis-runbook-audit" />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Escalation Contact Group</FormLabel>
+                <Input placeholder="Incident Commanders" />
+              </FormControl>
+            </SimpleGrid>
+            <Stack direction={{ base: 'column', md: 'row' }} spacing={3} justify="flex-end">
+              <Button variant="outline" colorScheme="brand">
+                Upload Runbook Library
+              </Button>
+              <Button colorScheme="brand">Save Runbook Settings</Button>
+            </Stack>
+          </Stack>
+        </Box>
+      </Stack>
     </VStack>
   );
 };

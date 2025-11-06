@@ -56,6 +56,15 @@ export interface EvidenceAssessmentLink {
   controlFamily: string;
 }
 
+export interface EvidenceStatusHistoryEntry {
+  id: string;
+  fromStatus: EvidenceStatus | null;
+  toStatus: EvidenceStatus;
+  note: string | null;
+  changedAt: string;
+  changedBy: EvidencePerson | null;
+}
+
 export interface EvidenceRecord {
   id: string;
   name: string;
@@ -85,6 +94,7 @@ export interface EvidenceRecord {
   lastScanSummary: string | null;
   lastScanDurationMs: number | null;
   lastScanBytes: number | null;
+  statusHistory: EvidenceStatusHistoryEntry[];
 }
 
 export interface EvidenceUploadRequestView {

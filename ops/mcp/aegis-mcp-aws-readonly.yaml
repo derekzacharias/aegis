@@ -1,0 +1,203 @@
+version: "0.1"
+metadata:
+  id: aegis-mcp-aws-readonly
+  name: AWS Read-Only Posture MCP Server
+  description: >
+    Provides read-only AWS inventory and compliance data (IAM, S3, Security Groups)
+    to back the AWS Posture Scan LangChain agent. Wraps boto3 SDK calls and
+    established assessment tools such as Prowler.
+  owner: aegis-platform
+  links:
+    runbook: docs/automation/aws-posture-scan.md
+
+runtime:
+  language: python3.11
+  entrypoint: src/aegis_mcp_aws/server.py
+  package_manager: pip
+  dependencies:
+    - boto3>=1.34.0
+    - langchain>=0.1.0
+    - mcp-sdk>=0.1.0
+    - prowler>=3.7.0
+    - steampipe>=0.21.4
+
+auth:
+  environment:
+    - name: AWS_REGION
+      required: true
+      description: Default AWS region for SDK calls (can be overridden per tool).
+    - name: AWS_ACCESS_KEY_ID
+      required: false
+      description: Access key for IAM user with read-only privileges (optional when using IAM role).
+    - name: AWS_SECRET_ACCESS_KEY
+      required: false
+      description: Secret key for IAM user with read-only privileges.
+    - name: AWS_SESSION_TOKEN
+      required: false
+      description: Temporary session token (if using STS assumed role).
+    - name: MCP_AWS_TOKEN
+      required: true
+      description: Short-lived MCP auth token rotated by scheduler.
+
+permissions:
+  network:
+    outbound:
+      - iam.amazonaws.com
+      - sts.amazonaws.com
+      - ec2.amazonaws.com
+      - s3.amazonaws.com
+      - es.amazonaws.com
+      - opensearch.us-east-1.amazonaws.com
+  execution:
+    allowlist:
+      - python3
+      - prowler
+      - steampipe
+
+tools:
+  - name: list_roles
+    description: Enumerate IAM roles and inline policies with wildcard permissions.
+    entrypoint: python3
+    script: src/aegis_mcp_aws/tools/list_roles.py
+    options:
+      region:
+        type: string
+        required: false
+        description: Override AWS region for the lookup.
+      include_policies:
+        type: boolean
+        required: false
+        description: Include inline policy documents in the response (default true).
+    output:
+      schema: >
+        {
+          "roles": [
+            {
+              "role_name": "ExampleRole",
+              "arn": "...",
+              "wildcard_actions": ["*"],
+              "wildcard_resources": [],
+              "inline_policies": [
+                {
+                  "name": "InlinePolicy",
+                  "document": {...}
+                }
+              ]
+            }
+          ]
+        }
+
+  - name: get_policy_summary
+    description: Retrieve IAM account policy summaries highlighting permissions with '*' scope.
+    entrypoint: python3
+    script: src/aegis_mcp_aws/tools/get_policy_summary.py
+    options:
+      region:
+        type: string
+        required: false
+        description: AWS region to query.
+    output:
+      schema: >
+        {
+          "summary_map": {
+            "PoliciesGrantingServiceAccess": [...],
+            "PoliciesGrantingFullAdminPrivileges": [...]
+          }
+        }
+
+  - name: describe_security_groups
+    description: Return security groups with public ingress (0.0.0.0/0 or ::/0).
+    entrypoint: python3
+    script: src/aegis_mcp_aws/tools/describe_security_groups.py
+    options:
+      region:
+        type: string
+        required: false
+      vpc_id:
+        type: string
+        required: false
+        description: Limit results to a specific VPC.
+    output:
+      schema: >
+        {
+          "security_groups": [
+            {
+              "group_id": "sg-123456",
+              "group_name": "public-ssh",
+              "ingress": [
+                {
+                  "cidr": "0.0.0.0/0",
+                  "from_port": 22,
+                  "to_port": 22,
+                  "protocol": "tcp"
+                }
+              ]
+            }
+          ]
+        }
+
+  - name: run_prowler_scan
+    description: Execute Prowler in AWS Organizations or account scope (read-only) and return JSON findings filtered for IAM/S3/Network risks.
+    entrypoint: python3
+    script: src/aegis_mcp_aws/tools/run_prowler_scan.py
+    options:
+      region:
+        type: string
+        required: false
+      checks:
+        type: array
+        items: string
+        required: false
+        description: Optional list of Prowler checks to include.
+      organization:
+        type: boolean
+        required: false
+        description: Set true when running in AWS Organizations delegated admin account.
+    output:
+      schema: >
+        {
+          "findings": [
+            {
+              "service": "iam",
+              "check": "iam_user_has_mfa",
+              "status": "FAIL",
+              "account_id": "123456789012",
+              "region": "us-east-1",
+              "resource": "user/test",
+              "severity": "HIGH"
+            }
+          ]
+        }
+
+outputs:
+  logging:
+    level: info
+    destinations:
+      - stdout
+      - file://${TMPDIR}/aegis-mcp-aws.log
+  metrics:
+    enabled: true
+    namespace: aegis/aws-posture
+    exporters:
+      - type: prometheus
+        endpoint: http://127.0.0.1:9465/metrics
+
+health_checks:
+  - name: sts_caller_identity
+    entrypoint: python3
+    script: src/aegis_mcp_aws/health/check_sts.py
+  - name: token_valid
+    entrypoint: python3
+    script: src/aegis_mcp_aws/health/check_token.py
+
+events:
+  - name: prowler.scan_completed
+    description: Emitted when a Prowler scan finishes; payload forwarded to OpenSearch/STIX formatter.
+    payload_schema: >
+      {
+        "timestamp": "2025-01-01T00:00:00Z",
+        "account_id": "123456789012",
+        "severity": "HIGH",
+        "summary": "Public S3 bucket detected.",
+        "evidence": {...}
+      }

@@ -1,0 +1,24 @@
+[
+  {
+    "family": "Configuration Management",
+    "title": "Baseline configuration",
+    "description": "Maintain and document a baseline configuration for production systems.",
+    "priority": "P2",
+    "kind": "base",
+    "baselines": ["moderate"],
+    "keywords": ["configuration", "baseline"],
+    "references": ["NIST SP 800-53 CM-2"],
+    "tags": ["cm", "baseline"]
+  },
+  {
+    "family": "Vulnerability Management",
+    "title": "Monthly vulnerability scanning",
+    "description": "Scan all internet-facing assets for vulnerabilities at least monthly.",
+    "priority": "P1",
+    "kind": "base",
+    "baselines": ["moderate", "high"],
+    "keywords": ["vulnerability", "scanning"],
+    "references": ["CIS Control 07.7"],
+    "tags": ["vulnerability", "scanner"]
+  }
+]

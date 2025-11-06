@@ -20,6 +20,7 @@ All create/update endpoints are organisation-scoped and restricted to analyst/ad
 - Framework names must be unique per organisation.
 - Controls require family, title, description, and priority.
 - Publish requires at least one control.
+- Publish metadata must include the acting owner (`metadata.owner.userId`) and source details (`metadata.source.type`). The CLI and wizard populate these fields automatically.
 - Control mappings support optional tags, confidence, and rationale.
 
 ### CSV/JSON imports
@@ -45,6 +46,33 @@ Access Management,User MFA,Require MFA for privileged access,P1,base,high|modera
   }
 ]
 ```
+
+### CLI seeding script
+
+Automation agents (or local operators) can seed frameworks end-to-end with the helper script at `tools/scripts/seed-framework.js`. The script handles authentication, creates or updates the framework, uploads controls from CSV/JSON, and optionally publishes the framework with the required metadata.
+
+```bash
+# optional: configure defaults for the CLI
+export AEGIS_API_BASE_URL="http://localhost:3333/api"
+export AEGIS_API_TOKEN="<access token from /auth/login>"
+
+node tools/scripts/seed-framework.js \
+  --input tools/scripts/examples/sample-controls.csv \
+  --name "Automation Baseline" \
+  --version "2024.1" \
+  --description "Baseline imported via CLI" \
+  --publish
+```
+
+Key flags:
+
+- `--input` – required path to a `.csv` or `.json` control file (templates live under `tools/scripts/examples/`).
+- `--name`, `--version`, `--description` – identify the framework draft; description is required when creating a new framework.
+- `--email/--password` or `--token` – authenticate the CLI. When a token is supplied, the script resolves the authenticated user via `/auth/me`.
+- `--publish` – promote the framework after controls upload. Published frameworks must include ownership metadata; the script automatically records the acting user and source in `metadata.owner` / `metadata.source`.
+- `--source-type`, `--source-id`, `--run-id` – optional knobs for annotating the metadata for traceability (defaults to `agent-cli` and a generated run identifier).
+
+The script merges metadata with any existing values so manual edits (for example, wizard progress) are preserved. Each run records `metadata.importRun` details (file path, control count, timestamps) that satisfy the new publish validation guardrails.
 
 ## Web wizard
 

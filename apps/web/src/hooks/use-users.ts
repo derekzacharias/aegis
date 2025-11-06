@@ -5,6 +5,7 @@ import {
   ForcePasswordResetResult,
   UserInviteSummary,
   UserProfile,
+  UserRefreshFailure,
   UserRole
 } from '@compliance/shared';
 import apiClient from '../services/api-client';
@@ -35,6 +36,19 @@ export const useUserInvites = (enabled = true) =>
     queryKey: ['users', 'invites'],
     queryFn: async () => {
       const { data } = await apiClient.get<UserInviteSummary[]>('/users/invites');
+      return data;
+    },
+    enabled,
+    placeholderData: []
+  });
+
+export const useRefreshFailures = (enabled = true, limit = 20) =>
+  useQuery({
+    queryKey: ['users', 'refresh-failures', limit],
+    queryFn: async () => {
+      const { data } = await apiClient.get<UserRefreshFailure[]>('/users/refresh-failures', {
+        params: { limit }
+      });
       return data;
     },
     enabled,

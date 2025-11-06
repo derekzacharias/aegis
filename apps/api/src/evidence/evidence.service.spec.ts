@@ -86,6 +86,21 @@ type EvidenceWithRelations = Prisma.EvidenceItemGetPayload<{
         framework: true;
       };
     };
+    controls: {
+      include: {
+        assessmentControl: {
+          include: {
+            assessment: true;
+            control: true;
+          };
+        };
+      };
+    };
+    statusHistory: {
+      include: {
+        changedBy: true;
+      };
+    };
   };
 }>;
 
@@ -181,7 +196,8 @@ describe('EvidenceService.createSimple', () => {
         updatedAt: now,
         lastLoginAt: now
       },
-      reviewer: null
+      reviewer: null,
+      statusHistory: []
     } as unknown) as EvidenceWithRelations;
 
     prismaMock.evidenceItem.create.mockResolvedValueOnce(createdRecord);

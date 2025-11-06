@@ -220,12 +220,11 @@ function createPrismaMock() {
             oauthAccessToken: (data as { oauthAccessToken?: string | null }).oauthAccessToken ?? null,
             oauthRefreshToken: (data as { oauthRefreshToken?: string | null }).oauthRefreshToken ?? null,
             oauthExpiresAt: (data as { oauthExpiresAt?: Date | null }).oauthExpiresAt ?? null,
-            oauthScopes: data.oauthScopes ?? [],
+            oauthScopes: resolve<string[]>(data.oauthScopes) ?? [],
             webhookSecret: (data as { webhookSecret?: string | null }).webhookSecret ?? null,
             webhookUrl: (data as { webhookUrl?: string | null }).webhookUrl ?? null,
             mappingPreferences:
-              (data as { mappingPreferences?: Prisma.JsonValue }).mappingPreferences ??
-              Prisma.JsonNull,
+              resolve<Prisma.JsonValue | null>(data.mappingPreferences) ?? null,
             lastSyncedAt: (data as { lastSyncedAt?: Date | null }).lastSyncedAt ?? null,
             lastWebhookAt: (data as { lastWebhookAt?: Date | null }).lastWebhookAt ?? null,
             status:

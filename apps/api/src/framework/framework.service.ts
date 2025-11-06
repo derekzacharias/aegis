@@ -324,6 +324,11 @@ export class FrameworkService {
         const name = dto.name.trim();
         const version = dto.version.trim();
         const slug = await this.generateUniqueSlug(tx, organizationId, name, version);
+        const metadataPayload = this.normalizeFrameworkMetadata(dto.metadata, {
+          ownerUserId: userId,
+          organizationId,
+          defaultSourceType: 'api'
+        });
 
         const framework = await tx.framework.create({
           data: {
@@ -334,13 +339,19 @@ export class FrameworkService {
             family: (dto.family ?? 'CUSTOM') as FrameworkFamily,
             status: dto.publish ? 'PUBLISHED' : 'DRAFT',
             isCustom: true,
-            metadata: dto.metadata ? (dto.metadata as Prisma.InputJsonValue) : Prisma.JsonNull,
+            metadata: metadataPayload
+              ? (metadataPayload as Prisma.InputJsonValue)
+              : Prisma.JsonNull,
             organizationId,
             createdById: userId,
             updatedById: userId,
             publishedAt: dto.publish ? new Date() : null
           }
         });
+
+        if (dto.publish) {
+          this.validatePublishMetadata(framework, metadataPayload);
+        }
 
         if (dto.controls?.length) {
           await this.upsertControlsInternal(tx, framework.id, userId, dto.controls);
@@ -375,7 +386,22 @@ export class FrameworkService {
     frameworkId: string,
     dto: UpdateCustomFrameworkDto
   ): Promise<FrameworkDetail> {
-    await this.ensureFrameworkOwnership(organizationId, frameworkId);
+    const framework = await this.ensureFrameworkOwnership(organizationId, frameworkId);
+    let metadataToPersist: Prisma.InputJsonValue | typeof Prisma.JsonNull | undefined;
+
+    if (dto.metadata !== undefined) {
+      const existingMetadata = this.deserializeMetadata(framework.metadata);
+      const mergedMetadata = this.mergeFrameworkMetadata(existingMetadata, dto.metadata);
+      const normalizedMetadata = this.normalizeFrameworkMetadata(mergedMetadata, {
+        ownerUserId: framework.createdById ?? userId,
+        organizationId: framework.organizationId,
+        defaultSourceType: 'api'
+      });
+
+      metadataToPersist = normalizedMetadata
+        ? (normalizedMetadata as Prisma.InputJsonValue)
+        : Prisma.JsonNull;
+    }
 
     try {
       await this.prisma.framework.update({
@@ -385,9 +411,7 @@ export class FrameworkService {
           ...(dto.version ? { version: dto.version.trim() } : {}),
           ...(dto.description ? { description: dto.description.trim() } : {}),
           ...(dto.family ? { family: dto.family } : {}),
-          ...(dto.metadata !== undefined
-            ? { metadata: dto.metadata ? (dto.metadata as Prisma.InputJsonValue) : Prisma.JsonNull }
-            : {}),
+          ...(metadataToPersist !== undefined ? { metadata: metadataToPersist } : {}),
           updatedById: userId
         }
       });
@@ -432,7 +456,7 @@ export class FrameworkService {
     userId: string,
     dto: PublishFrameworkDto
   ): Promise<FrameworkSummary> {
-    await this.ensureFrameworkOwnership(organizationId, frameworkId);
+    const framework = await this.ensureFrameworkOwnership(organizationId, frameworkId);
 
     const controlCount = await this.prisma.control.count({
       where: { frameworkId }
@@ -442,17 +466,25 @@ export class FrameworkService {
       throw new BadRequestException('Cannot publish a framework without controls');
     }
 
+    const existingMetadata = this.deserializeMetadata(framework.metadata);
+    const mergedMetadata = this.mergeFrameworkMetadata(existingMetadata, dto.metadata);
+    const normalizedMetadata = this.normalizeFrameworkMetadata(mergedMetadata, {
+      ownerUserId: framework.createdById ?? userId,
+      organizationId,
+      defaultSourceType: 'api'
+    });
+
+    this.validatePublishMetadata(framework, normalizedMetadata);
+
     const updateData: Prisma.FrameworkUncheckedUpdateInput = {
       status: 'PUBLISHED',
       updatedById: userId,
       publishedAt: new Date()
     };
 
-    if (dto.metadata !== undefined) {
-      updateData.metadata = dto.metadata
-        ? (dto.metadata as Prisma.InputJsonValue)
-        : Prisma.JsonNull;
-    }
+    updateData.metadata = normalizedMetadata
+      ? (normalizedMetadata as Prisma.InputJsonValue)
+      : Prisma.JsonNull;
 
     const updated = await this.prisma.framework.update({
       where: { id: frameworkId },
@@ -1122,6 +1154,142 @@ export class FrameworkService {
 
   private mapControlKind(kind: PrismaControlKind): 'base' | 'enhancement' {
     return kind === 'ENHANCEMENT' ? 'enhancement' : 'base';
+  }
+
+  private mergeFrameworkMetadata(
+    existing: Record<string, unknown> | undefined,
+    incoming?: Record<string, unknown>
+  ): Record<string, unknown> | undefined {
+    if (!existing && !incoming) {
+      return undefined;
+    }
+
+    const result: Record<string, unknown> = { ...(existing ?? {}) };
+
+    if (incoming) {
+      for (const [key, value] of Object.entries(incoming)) {
+        if ((key === 'owner' || key === 'source') && this.isPlainObject(value)) {
+          const currentValue = this.isPlainObject(result[key])
+            ? (result[key] as Record<string, unknown>)
+            : undefined;
+
+          result[key] = {
+            ...(currentValue ?? {}),
+            ...(value as Record<string, unknown>)
+          };
+        } else {
+          result[key] = value;
+        }
+      }
+    }
+
+    return Object.keys(result).length ? result : undefined;
+  }
+
+  private normalizeFrameworkMetadata(
+    metadata: Record<string, unknown> | undefined,
+    context: {
+      ownerUserId: string;
+      organizationId?: string;
+      ownerEmail?: string | null;
+      defaultSourceType?: string;
+    }
+  ): Record<string, unknown> | undefined {
+    const normalized: Record<string, unknown> = { ...(metadata ?? {}) };
+    const ownerRecord = this.isPlainObject(normalized['owner'])
+      ? { ...(normalized['owner'] as Record<string, unknown>) }
+      : {};
+
+    if (!this.isNonEmptyString(ownerRecord['userId'])) {
+      ownerRecord['userId'] = context.ownerUserId;
+    }
+
+    if (context.organizationId && !this.isNonEmptyString(ownerRecord['organizationId'])) {
+      ownerRecord['organizationId'] = context.organizationId;
+    }
+
+    if (context.ownerEmail && !this.isNonEmptyString(ownerRecord['email'])) {
+      ownerRecord['email'] = context.ownerEmail;
+    }
+
+    normalized['owner'] = ownerRecord;
+
+    const sourceRecord = this.isPlainObject(normalized['source'])
+      ? { ...(normalized['source'] as Record<string, unknown>) }
+      : {};
+
+    if (!this.isNonEmptyString(sourceRecord['type'])) {
+      sourceRecord['type'] = context.defaultSourceType ?? 'api';
+    }
+
+    normalized['source'] = sourceRecord;
+
+    return Object.keys(normalized).length ? normalized : undefined;
+  }
+
+  private validatePublishMetadata(
+    framework: FrameworkModel,
+    metadata: Record<string, unknown> | undefined
+  ): void {
+    if (!framework.isCustom) {
+      return;
+    }
+
+    if (!metadata) {
+      throw new BadRequestException('Framework metadata is required before publishing.');
+    }
+
+    const ownerRecord = this.isPlainObject(metadata['owner'])
+      ? (metadata['owner'] as Record<string, unknown>)
+      : undefined;
+
+    if (!ownerRecord) {
+      throw new BadRequestException('Framework metadata must include owner details before publishing.');
+    }
+
+    const ownerUserId = this.isNonEmptyString(ownerRecord['userId']) ? ownerRecord['userId'] : null;
+
+    if (!ownerUserId) {
+      throw new BadRequestException('Framework metadata requires owner.userId before publishing.');
+    }
+
+    if (framework.createdById && ownerUserId !== framework.createdById) {
+      throw new BadRequestException(
+        'Framework metadata owner.userId must match the user who created the framework.'
+      );
+    }
+
+    const ownerOrgId = this.isNonEmptyString(ownerRecord['organizationId'])
+      ? ownerRecord['organizationId']
+      : null;
+
+    if (ownerOrgId && ownerOrgId !== framework.organizationId) {
+      throw new BadRequestException(
+        'Framework metadata owner.organizationId must match the framework organization.'
+      );
+    }
+
+    const sourceRecord = this.isPlainObject(metadata['source'])
+      ? (metadata['source'] as Record<string, unknown>)
+      : undefined;
+
+    if (!sourceRecord) {
+      throw new BadRequestException('Framework metadata must include a source before publishing.');
+    }
+
+    const sourceType = this.isNonEmptyString(sourceRecord['type']) ? sourceRecord['type'] : null;
+
+    if (!sourceType) {
+      throw new BadRequestException('Framework metadata source.type is required before publishing.');
+    }
+  }
+
+  private isPlainObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+
+  private isNonEmptyString(value: unknown): value is string {
+    return typeof value === 'string' && value.trim().length > 0;
   }
 
   private deserializeMetadata(

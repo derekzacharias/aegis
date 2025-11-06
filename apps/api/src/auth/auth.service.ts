@@ -82,9 +82,10 @@ export class AuthService {
 
     const tokens = await this.generateTokens(user);
     const { refreshTokenId, ...publicTokens } = tokens;
-    await this.storeRefreshToken(user.id, publicTokens.refreshToken, refreshTokenId, {
+    const issuedAt = await this.storeRefreshToken(user.id, publicTokens.refreshToken, refreshTokenId, {
       lastLoginAt: new Date()
     });
+    await this.recordServiceTokenIssuance(user, refreshTokenId, issuedAt, 'register');
 
     return {
       user: this.sanitizeUser(user),
@@ -174,9 +175,10 @@ export class AuthService {
 
     const tokens = await this.generateTokens(createdUser);
     const { refreshTokenId, ...publicTokens } = tokens;
-    await this.storeRefreshToken(createdUser.id, publicTokens.refreshToken, refreshTokenId, {
+    const issuedAt = await this.storeRefreshToken(createdUser.id, publicTokens.refreshToken, refreshTokenId, {
       lastLoginAt: new Date()
     });
+    await this.recordServiceTokenIssuance(createdUser, refreshTokenId, issuedAt, 'accept-invite');
 
     return {
       user: this.sanitizeUser(createdUser),
@@ -229,9 +231,10 @@ export class AuthService {
 
     const tokens = await this.generateTokens(user);
     const { refreshTokenId, ...publicTokens } = tokens;
-    await this.storeRefreshToken(user.id, publicTokens.refreshToken, refreshTokenId, {
+    const issuedAt = await this.storeRefreshToken(user.id, publicTokens.refreshToken, refreshTokenId, {
       lastLoginAt: new Date()
     });
+    await this.recordServiceTokenIssuance(user, refreshTokenId, issuedAt, 'login');
 
     return {
       user: this.sanitizeUser(user),
@@ -315,7 +318,8 @@ export class AuthService {
 
     const tokens = await this.generateTokens(user);
     const { refreshTokenId, ...publicTokens } = tokens;
-    await this.storeRefreshToken(user.id, publicTokens.refreshToken, refreshTokenId);
+    const issuedAt = await this.storeRefreshToken(user.id, publicTokens.refreshToken, refreshTokenId);
+    await this.recordServiceTokenIssuance(user, refreshTokenId, issuedAt, 'refresh');
 
     return {
       user: this.sanitizeUser(user),
@@ -447,6 +451,44 @@ export class AuthService {
     return this.sanitizeUser(user);
   }
 
+  private async recordServiceTokenIssuance(
+    user: User,
+    refreshTokenId: string,
+    issuedAt: Date,
+    source: 'register' | 'accept-invite' | 'login' | 'refresh'
+  ): Promise<void> {
+    if (!this.isServiceUser(user.email)) {
+      return;
+    }
+
+    try {
+      await this.prisma.userProfileAudit.create({
+        data: {
+          userId: user.id,
+          actorId: null,
+          changes: {
+            serviceToken: {
+              previous: null,
+              current: 'issued',
+              source,
+              refreshTokenId,
+              issuedAt: issuedAt.toISOString()
+            }
+          } as Prisma.InputJsonValue
+        }
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to persist service token audit for user ${user.id}: ${(error as Error).message}`,
+        (error as Error).stack
+      );
+    }
+  }
+
+  private isServiceUser(email: string): boolean {
+    return email.toLowerCase().includes('-agent@');
+  }
+
   private sanitizeUser(user: User): AuthenticatedUser {
     return {
       id: user.id,
@@ -519,7 +561,7 @@ export class AuthService {
     refreshToken: string,
     tokenId: string,
     extra?: Prisma.UserUpdateInput
-  ): Promise<void> {
+  ): Promise<Date> {
     const hashed = await hash(refreshToken, 12);
     const issuedAt = new Date();
 
@@ -533,6 +575,8 @@ export class AuthService {
         ...(extra ?? {})
       }
     });
+
+    return issuedAt;
   }
 
   private ensureRole(role?: UserRole): UserRole {

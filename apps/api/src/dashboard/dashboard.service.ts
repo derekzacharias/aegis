@@ -1,11 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { EvidenceScanStatus, EvidenceStatus } from '@prisma/client';
-import {
-  CONTACT_STALE_DAYS,
-  PROFILE_CRITICAL_FIELDS,
-  ProfileCompletenessSummary,
-  ProfileCriticalField
-} from '@compliance/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/types/auth.types';
 
@@ -46,7 +40,6 @@ export interface DashboardOverview {
     lastCompletedScanAt: string | null;
     engine: string | null;
   };
-  contact: ProfileCompletenessSummary;
 }
 
 @Injectable()
@@ -140,8 +133,6 @@ export class DashboardService {
       })
     ]);
 
-    const contact = await this.computeContactSummary(organizationId);
-
     return {
       stats: [
         {
@@ -223,122 +214,7 @@ export class DashboardService {
           : null,
         lastCompletedScanAt: latestScan?.completedAt?.toISOString() ?? null,
         engine: latestScan?.engine ?? null
-      },
-      contact
-    };
-  }
-
-  private async computeContactSummary(organizationId: string): Promise<ProfileCompletenessSummary> {
-    const users = await this.prisma.user.findMany({
-      where: { organizationId },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        jobTitle: true,
-        phoneNumber: true,
-        timezone: true,
-        updatedAt: true
-      },
-      orderBy: {
-        updatedAt: 'asc'
       }
-    });
-
-    const baseCounts = PROFILE_CRITICAL_FIELDS.reduce<Record<ProfileCriticalField, number>>(
-      (acc, field) => {
-        acc[field] = 0;
-        return acc;
-      },
-      {} as Record<ProfileCriticalField, number>
-    );
-
-    if (!users.length) {
-      return {
-        total: 0,
-        complete: 0,
-        incomplete: 0,
-        stale: 0,
-        completenessRate: 100,
-        missingFieldCounts: baseCounts,
-        attention: []
-      };
-    }
-
-    const staleThresholdMs = CONTACT_STALE_DAYS * 24 * 60 * 60 * 1000;
-    const now = Date.now();
-
-    const attention: ProfileCompletenessSummary['attention'] = [];
-    const missingFieldCounts = { ...baseCounts };
-    let complete = 0;
-    let incomplete = 0;
-    let stale = 0;
-
-    for (const user of users) {
-      const lastUpdated = user.updatedAt ?? new Date();
-      const isStale = now - lastUpdated.getTime() >= staleThresholdMs;
-      const missingFields: ProfileCriticalField[] = [];
-
-      for (const field of PROFILE_CRITICAL_FIELDS) {
-        const value = user[field as keyof typeof user] as string | null | undefined;
-        if (value === null || value === undefined) {
-          missingFields.push(field);
-          continue;
-        }
-
-        if (typeof value === 'string' && value.trim().length === 0) {
-          missingFields.push(field);
-        }
-      }
-
-      if (missingFields.length === 0) {
-        complete += 1;
-      } else {
-        incomplete += 1;
-        missingFields.forEach((field) => {
-          missingFieldCounts[field] += 1;
-        });
-      }
-
-      if (isStale) {
-        stale += 1;
-      }
-
-      if (missingFields.length > 0 || isStale) {
-        attention.push({
-          id: user.id,
-          email: user.email,
-          name: [user.firstName, user.lastName].filter(Boolean).join(' ') || null,
-          missingFields,
-          isStale,
-          lastUpdated: lastUpdated.toISOString()
-        });
-      }
-    }
-
-    const completenessRate = Math.round((complete / users.length) * 100);
-
-    const rankedAttention = attention
-      .sort((a, b) => {
-        const missingDiff = b.missingFields.length - a.missingFields.length;
-        if (missingDiff !== 0) {
-          return missingDiff;
-        }
-        const aUpdated = a.lastUpdated ? Date.parse(a.lastUpdated) : 0;
-        const bUpdated = b.lastUpdated ? Date.parse(b.lastUpdated) : 0;
-        return aUpdated - bUpdated;
-      })
-      .slice(0, 5);
-
-    return {
-      total: users.length,
-      complete,
-      incomplete,
-      stale,
-      completenessRate,
-      missingFieldCounts,
-      attention: rankedAttention
     };
   }
 }

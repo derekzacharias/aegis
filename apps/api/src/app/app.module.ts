@@ -17,6 +17,7 @@ import { SchedulerModule } from '../scheduler/scheduler.module';
 import { PolicyModule } from '../policy/policy.module';
 import { UserModule } from '../user/user.module';
 import { TenantModule } from '../tenant/tenant.module';
+import { DocsModule } from '../docs/docs.module';
 
 @Module({
   imports: [
@@ -35,7 +36,8 @@ import { TenantModule } from '../tenant/tenant.module';
     ReportingModule,
     PolicyModule,
     SchedulerModule,
-    TenantModule
+    TenantModule,
+    DocsModule
   ],
   controllers: [HealthController],
   providers: [

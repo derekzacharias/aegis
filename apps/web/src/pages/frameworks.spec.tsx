@@ -1,5 +1,7 @@
+import '@testing-library/jest-dom';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { ChakraProvider } from '@chakra-ui/react';
+import { MemoryRouter } from 'react-router-dom';
 import FrameworksPage from './frameworks';
 import { useDeleteFramework, useFrameworks } from '../hooks/use-frameworks';
 
@@ -57,9 +59,11 @@ describe('FrameworksPage', () => {
 
   it('renders ISO frameworks in the library', () => {
     render(
-      <ChakraProvider>
-        <FrameworksPage />
-      </ChakraProvider>
+      <MemoryRouter>
+        <ChakraProvider>
+          <FrameworksPage />
+        </ChakraProvider>
+      </MemoryRouter>
     );
 
     expect(screen.getByText('ISO/IEC 27001')).toBeInTheDocument();
@@ -90,9 +94,11 @@ describe('FrameworksPage', () => {
     });
 
     render(
-      <ChakraProvider>
-        <FrameworksPage />
-      </ChakraProvider>
+      <MemoryRouter>
+        <ChakraProvider>
+          <FrameworksPage />
+        </ChakraProvider>
+      </MemoryRouter>
     );
 
     fireEvent.click(screen.getByLabelText('Framework options'));
