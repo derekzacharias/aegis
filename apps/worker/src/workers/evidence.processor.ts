@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  CONTACT_STALE_DAYS,
   EvidenceIngestionJobPayload,
   JobQueue,
   JobRecord,
@@ -31,7 +32,6 @@ import {
 } from '../notifications/notification.service';
 
 const JOB_NAME = 'evidence.ingest';
-const CONTACT_STALE_DAYS = 90;
 const CONTACT_METRIC_PREFIX = 'notifications.contact';
 
 type EvidenceSummary = {

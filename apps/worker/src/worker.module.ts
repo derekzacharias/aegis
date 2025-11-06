@@ -13,6 +13,7 @@ import { ScheduleRunner } from './scheduler/schedule-runner';
 import { EvidenceReviewReminderHandler } from './scheduler/handlers/evidence-review.handler';
 import { RecurringAssessmentHandler } from './scheduler/handlers/recurring-assessment.handler';
 import { AgentHealthCheckHandler } from './scheduler/handlers/agent-health-check.handler';
+import { ProfileContactReminderHandler } from './scheduler/handlers/profile-contact-reminder.handler';
 import { PrismaService } from './prisma.service';
 import { ArtifactFetcher } from './storage/artifact-fetcher';
 import { AntivirusService } from './antivirus/antivirus.service';
@@ -41,14 +42,21 @@ import { MetricsService } from './metrics/metrics.service';
     EvidenceReviewReminderHandler,
     RecurringAssessmentHandler,
     AgentHealthCheckHandler,
+    ProfileContactReminderHandler,
     {
       provide: SCHEDULE_HANDLERS,
-      inject: [EvidenceReviewReminderHandler, RecurringAssessmentHandler, AgentHealthCheckHandler],
+      inject: [
+        EvidenceReviewReminderHandler,
+        RecurringAssessmentHandler,
+        AgentHealthCheckHandler,
+        ProfileContactReminderHandler
+      ],
       useFactory: (
         evidence: EvidenceReviewReminderHandler,
         assessment: RecurringAssessmentHandler,
-        health: AgentHealthCheckHandler
-      ) => [evidence, assessment, health]
+        health: AgentHealthCheckHandler,
+        profile: ProfileContactReminderHandler
+      ) => [evidence, assessment, health, profile]
     },
     {
       provide: SCHEDULE_STORE,

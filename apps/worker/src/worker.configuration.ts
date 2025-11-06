@@ -102,6 +102,7 @@ export default () => ({
   },
   notifications: {
     endpoint: process.env['NOTIFICATION_SERVICE_URL'] ?? null,
-    evidenceChannel: process.env['NOTIFICATION_EVIDENCE_CHANNEL'] ?? 'evidence-reviewers'
+    evidenceChannel: process.env['NOTIFICATION_EVIDENCE_CHANNEL'] ?? 'evidence-reviewers',
+    profileChannel: process.env['NOTIFICATION_PROFILE_CHANNEL'] ?? 'operations-team'
   }
 });
