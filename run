@@ -49,6 +49,13 @@ function timestamp() {
   return new Date().toISOString().replace('T', ' ').replace('Z', '');
 }
 
+// Replace characters that are unsafe for filenames on common filesystems
+// or disallowed by artifact providers (e.g., colon on Windows/GitHub Artifacts).
+function safeFilenameSegment(name) {
+  // Allow alphanumerics, dot, underscore, and dash. Replace others with '-'.
+  return String(name).replace(/[^a-zA-Z0-9._-]/g, '-');
+}
+
 function appendLine(file, line) {
   fs.appendFileSync(file, `${line}\n`);
 }
@@ -476,7 +483,8 @@ function runCommandStreaming(name, command, args, options = {}) {
       shell: options.shell ?? false
     });
 
-    const logFile = path.join(runDir, `${name}.log`);
+    const safeName = safeFilenameSegment(name);
+    const logFile = path.join(runDir, `${safeName}.log`);
     fs.writeFileSync(logFile, '');
 
     attachLogging(name, child, logFile);
