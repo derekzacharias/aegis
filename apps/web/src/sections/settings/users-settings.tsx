@@ -55,7 +55,8 @@ import {
   useRevokeInvite,
   useUserInvites,
   useUsers,
-  useRefreshFailures
+  useRefreshFailures,
+  useServiceTokenEvents
 } from '../../hooks/use-users';
 import { formatPhoneNumber } from '../../utils/phone';
 
@@ -159,6 +160,12 @@ const UsersSettings = () => {
     isFetching: isRefreshFetching,
     error: refreshFailuresError
   } = useRefreshFailures(isAdmin, 20);
+  const {
+    data: serviceTokenEvents = [],
+    isLoading: isServiceEventsLoading,
+    isFetching: isServiceEventsFetching,
+    error: serviceTokenEventsError
+  } = useServiceTokenEvents(isAdmin, 20);
   const createUser = useCreateUser();
   const createInvite = useCreateInvite();
   const revokeInvite = useRevokeInvite();
@@ -587,6 +594,67 @@ const UsersSettings = () => {
                       ))}
                     </Stack>
                   ) : null}
+                </Box>
+              ))}
+            </Stack>
+          )}
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader display="flex" alignItems="center" justifyContent="space-between">
+          <Box>
+            <Heading size="md">Service token issuance</Heading>
+            <Text color="gray.500" fontSize="sm">
+              Track refresh tokens issued to automation accounts and when they were generated.
+            </Text>
+          </Box>
+          {isServiceEventsFetching ? <Spinner size="sm" /> : null}
+        </CardHeader>
+        <CardBody>
+          {isServiceEventsLoading ? (
+            <Box display="flex" alignItems="center" justifyContent="center" py={6}>
+              <Spinner />
+            </Box>
+          ) : serviceTokenEventsError ? (
+            <Text color="red.500">{getErrorMessage(serviceTokenEventsError)}</Text>
+          ) : serviceTokenEvents.length === 0 ? (
+            <Text color="gray.500">No service token issuance events recorded yet.</Text>
+          ) : (
+            <Stack spacing={3}>
+              {serviceTokenEvents.map((event) => (
+                <Box key={event.id} borderWidth="1px" borderRadius="md" p={4}>
+                  <HStack justifyContent="space-between" alignItems="flex-start">
+                    <Box>
+                      <Text fontWeight="semibold">{event.email}</Text>
+                      {event.name ? (
+                        <Text fontSize="sm" color="gray.500">
+                          {event.name}
+                        </Text>
+                      ) : null}
+                    </Box>
+                    <HStack spacing={2}>
+                      {event.isServiceUser ? (
+                        <Badge colorScheme="purple">Service user</Badge>
+                      ) : (
+                        <Badge colorScheme="gray">User</Badge>
+                      )}
+                      {event.source ? <Badge colorScheme="blue">{event.source}</Badge> : null}
+                    </HStack>
+                  </HStack>
+                  <Stack spacing={1} mt={2} fontSize="sm">
+                    <Text color="gray.600">
+                      Issued: {dayjs(event.issuedAt ?? event.occurredAt).format('MMM D, YYYY h:mm A')}
+                    </Text>
+                    <Text color="gray.600">
+                      Recorded: {dayjs(event.occurredAt).format('MMM D, YYYY h:mm A')}
+                    </Text>
+                    {event.refreshTokenId ? (
+                      <Text color="gray.500" fontFamily="mono" fontSize="xs">
+                        Refresh ID: {event.refreshTokenId}
+                      </Text>
+                    ) : null}
+                  </Stack>
                 </Box>
               ))}
             </Stack>

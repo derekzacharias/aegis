@@ -17,7 +17,7 @@ runtime:
   dependencies:
     - boto3>=1.34.0
     - langchain>=0.1.0
-    - mcp-sdk>=0.1.0
+    - mcp>=0.1.0
     - prowler>=3.7.0
     - steampipe>=0.21.4
 

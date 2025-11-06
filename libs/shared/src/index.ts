@@ -1,6 +1,7 @@
 export * from './lib/framework.types';
 export * from './lib/framework.jobs';
 export * from './lib/assessment.types';
+export * from './lib/assessment.jobs';
 export * from './lib/evidence.types';
 export * from './lib/policy.types';
 export * from './lib/auth.types';

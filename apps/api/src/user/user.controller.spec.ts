@@ -2,7 +2,12 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { APP_GUARD, Reflector } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { UserProfile, UserProfileAuditEntry, UserRefreshFailure } from '@compliance/shared';
+import {
+  UserProfile,
+  UserProfileAuditEntry,
+  UserRefreshFailure,
+  UserServiceTokenEvent
+} from '@compliance/shared';
 import { UserRole } from '@prisma/client';
 import { ROLES_KEY } from '../auth/decorators/roles.decorator';
 import { AuthenticatedUser } from '../auth/types/auth.types';
@@ -60,6 +65,19 @@ describe('UserController (integration)', () => {
     }
   ];
 
+  const serviceTokenEvents: UserServiceTokenEvent[] = [
+    {
+      id: 'event-1',
+      userId: 'agent-1',
+      email: 'reports-agent@aegis.local',
+      name: 'Reports Agent',
+      source: 'login',
+      refreshTokenId: 'refresh-123',
+      issuedAt: new Date().toISOString(),
+      occurredAt: new Date().toISOString(),
+      isServiceUser: true
+    }
+  ];
   let currentUser: AuthenticatedUser = {
     id: 'user-1',
     email: 'analyst@example.com',
@@ -98,6 +116,7 @@ describe('UserController (integration)', () => {
       changePassword: jest.fn().mockResolvedValue(undefined),
       listAuditEntries: jest.fn().mockResolvedValue(audits),
       listRefreshFailures: jest.fn().mockResolvedValue(refreshFailures),
+      listServiceTokenEvents: jest.fn().mockResolvedValue(serviceTokenEvents),
       updateUserRole: jest.fn().mockResolvedValue({ ...profile, role: 'ADMIN' })
     } as unknown as jest.Mocked<UserService>;
 
@@ -191,6 +210,29 @@ describe('UserController (integration)', () => {
     expect(userService.listRefreshFailures).toHaveBeenCalledWith(currentUser, 20);
     expect(response.body).toHaveLength(1);
     expect(response.body[0]).toMatchObject({ reason: 'hash-mismatch' });
+  });
+
+  it('blocks non-admin users from viewing service token events', async () => {
+    const response = await request(app.getHttpServer()).get('/users/service-token-events');
+
+    expect(response.status).toBe(403);
+    expect(userService.listServiceTokenEvents).not.toHaveBeenCalled();
+  });
+
+  it('allows administrators to view service token events', async () => {
+    currentUser = {
+      id: 'admin-1',
+      email: 'admin@example.com',
+      organizationId: 'org-1',
+      role: 'ADMIN'
+    } as AuthenticatedUser;
+
+    const response = await request(app.getHttpServer()).get('/users/service-token-events');
+
+    expect(response.status).toBe(200);
+    expect(userService.listServiceTokenEvents).toHaveBeenCalledWith(currentUser, 20);
+    expect(response.body).toHaveLength(1);
+    expect(response.body[0]).toMatchObject({ source: 'login' });
   });
 
   it('prevents non-admin users from changing roles', async () => {

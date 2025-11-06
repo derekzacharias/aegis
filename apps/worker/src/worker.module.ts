@@ -19,6 +19,7 @@ import { ArtifactFetcher } from './storage/artifact-fetcher';
 import { AntivirusService } from './antivirus/antivirus.service';
 import { NotificationService } from './notifications/notification.service';
 import { MetricsService } from './metrics/metrics.service';
+import { AssessmentAutomationProcessor } from './workers/assessment.automation.processor';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { MetricsService } from './metrics/metrics.service';
     AntivirusService,
     NotificationService,
     MetricsService,
+    AssessmentAutomationProcessor,
     EvidenceProcessor,
     JiraIntegrationProvider,
     ServiceNowIntegrationProvider,

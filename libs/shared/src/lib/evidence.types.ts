@@ -65,6 +65,18 @@ export interface EvidenceStatusHistoryEntry {
   changedBy: EvidencePerson | null;
 }
 
+export interface EvidenceReleaseEvent {
+  id: string;
+  evidenceId: string;
+  evidenceName: string;
+  evidenceFilename: string | null;
+  releasedTo: EvidenceStatus;
+  note: string | null;
+  changedAt: string;
+  changedBy: EvidencePerson | null;
+  isAutomatic: boolean;
+}
+
 export interface EvidenceRecord {
   id: string;
   name: string;

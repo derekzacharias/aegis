@@ -188,7 +188,8 @@ describe('EvidenceProcessor', () => {
       storageUri: 'file:///tmp/evidence/malware.pdf',
       storageKey: 'malware.pdf',
       storageProvider: 'LOCAL',
-      checksum: 'sha256:malware'
+      checksum: 'sha256:malware',
+      requestedBy: 'analyst@example.com'
     });
 
     expect(result.quarantined).toBe(true);
@@ -212,7 +213,14 @@ describe('EvidenceProcessor', () => {
       expect.objectContaining({
         evidenceId: 'evidence-1',
         status: 'quarantined',
-        reason: 'Detected EICAR-Test-Signature'
+        reason: 'Detected EICAR-Test-Signature',
+        requestedBy: expect.objectContaining({
+          id: 'user-1',
+          email: 'analyst@example.com',
+          name: 'Ana Lyst',
+          phoneNumber: '+1 (555) 010-0',
+          timezone: 'America/New_York'
+        })
       })
     );
   });

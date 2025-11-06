@@ -33,7 +33,7 @@ const navItems: NavItem[] = [
   { label: 'Evidence', icon: FiFolder, path: '/evidence' },
   { label: 'Policies', icon: FiShield, path: '/policies' },
   { label: 'Reports', icon: FiFileText, path: '/reports' },
-  { label: 'Documentation', icon: FiHelpCircle, path: '/documentation' },
+  { label: 'Docs', icon: FiHelpCircle, path: '/docs' },
   { label: 'Settings', icon: FiSettings, path: '/settings' }
 ];
 

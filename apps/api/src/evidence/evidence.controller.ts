@@ -15,7 +15,8 @@ import { Response, Request } from 'express';
 import { UserRole } from '@prisma/client';
 import {
   EvidenceRecord,
-  EvidenceUploadRequestView
+  EvidenceUploadRequestView,
+  EvidenceReleaseEvent
 } from '@compliance/shared';
 import { EvidenceService } from './evidence.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -29,6 +30,7 @@ import { CreateEvidenceDto } from './dto/create-evidence.dto';
 import { UpdateEvidenceMetadataDto } from './dto/update-evidence-metadata.dto';
 import { UpdateEvidenceLinksDto } from './dto/update-evidence-links.dto';
 import { ReprocessEvidenceDto } from './dto/reprocess-evidence.dto';
+import { ReleaseHistoryQueryDto } from './dto/release-history-query.dto';
 
 @Roles(UserRole.READ_ONLY, UserRole.ANALYST, UserRole.AUDITOR, UserRole.ADMIN)
 @Controller('evidence')
@@ -38,6 +40,14 @@ export class EvidenceController {
   @Get()
   async list(@CurrentUser() user: AuthenticatedUser): Promise<EvidenceRecord[]> {
     return this.evidenceService.list(user.organizationId);
+  }
+
+  @Get('release-history')
+  async releaseHistory(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: ReleaseHistoryQueryDto
+  ): Promise<EvidenceReleaseEvent[]> {
+    return this.evidenceService.listReleaseHistory(user.organizationId, query.limit ?? 10);
   }
 
   @Get(':id')

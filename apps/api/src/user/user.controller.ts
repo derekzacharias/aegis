@@ -5,7 +5,8 @@ import {
   UserInviteSummary,
   UserProfile,
   UserProfileAuditEntry,
-  UserRefreshFailure
+  UserRefreshFailure,
+  UserServiceTokenEvent
 } from '@compliance/shared';
 import type { Response } from 'express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -136,6 +137,15 @@ export class UserController {
     @Query() query: ProfileAuditQueryDto
   ): Promise<UserRefreshFailure[]> {
     return this.userService.listRefreshFailures(actor, query.limit ?? 20);
+  }
+
+  @Get('service-token-events')
+  @Roles(UserRole.ADMIN)
+  async listServiceTokenEvents(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Query() query: ProfileAuditQueryDto
+  ): Promise<UserServiceTokenEvent[]> {
+    return this.userService.listServiceTokenEvents(actor, query.limit ?? 20);
   }
 
   @Patch(':userId/role')

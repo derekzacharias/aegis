@@ -2,7 +2,8 @@ import {
   EvidenceIngestionStatus,
   EvidenceRecord,
   EvidenceStatus,
-  EvidenceUploadRequestView
+  EvidenceUploadRequestView,
+  EvidenceReleaseEvent
 } from '@compliance/shared';
 import axios from 'axios';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -18,6 +19,19 @@ export const useEvidence = () =>
     placeholderData: [],
     retry: false,
     staleTime: 1000 * 60 * 5
+  });
+
+export const useEvidenceReleaseHistory = (enabled = true, limit = 10) =>
+  useQuery({
+    queryKey: ['evidence', 'release-history', limit],
+    queryFn: async () => {
+      const response = await apiClient.get<EvidenceReleaseEvent[]>('/evidence/release-history', {
+        params: { limit }
+      });
+      return response.data;
+    },
+    enabled,
+    placeholderData: []
   });
 
 export type EvidenceUploadPayload = {
