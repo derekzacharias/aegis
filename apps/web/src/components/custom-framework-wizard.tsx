@@ -30,7 +30,7 @@ import {
   useToast,
   VStack
 } from '@chakra-ui/react';
-import { ChangeEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BaselineLevel,
   CustomControlInput,
@@ -42,6 +42,7 @@ import {
   useUpsertControlsMutation
 } from '../hooks/use-custom-frameworks';
 import type { FrameworkSummary } from '../hooks/use-frameworks';
+import useAuth from '../hooks/use-auth';
 
 const STEPS = ['Framework Details', 'Controls', 'Review', 'Publish'];
 
@@ -53,6 +54,16 @@ const defaultDetails = {
   metadata: {} as Record<string, unknown>
 };
 
+const ALLOWED_CUSTOM_FAMILIES = ['NIST', 'CIS', 'PCI', 'CUSTOM'] as const;
+type AllowedCustomFamily = (typeof ALLOWED_CUSTOM_FAMILIES)[number];
+
+const toAllowedCustomFamily = (family: FrameworkDetail['family']): AllowedCustomFamily => {
+  if (ALLOWED_CUSTOM_FAMILIES.some((allowed) => allowed === family)) {
+    return family as AllowedCustomFamily;
+  }
+  return 'CUSTOM';
+};
+
 const defaultControl: CustomControlInput = {
   family: '',
   title: '',
@@ -60,6 +71,9 @@ const defaultControl: CustomControlInput = {
   priority: 'P2',
   kind: 'base'
 };
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 interface CustomFrameworkWizardProps {
   isOpen: boolean;
@@ -78,6 +92,7 @@ const CustomFrameworkWizard = ({ isOpen, onClose, framework }: CustomFrameworkWi
   const [isSaving, setIsSaving] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const toast = useToast();
+  const { user } = useAuth();
 
   const { data: existingDetail, isFetching: isLoadingDetail } = useFrameworkDetail(
     framework?.id
@@ -90,6 +105,44 @@ const CustomFrameworkWizard = ({ isOpen, onClose, framework }: CustomFrameworkWi
   const isEditingDraft = Boolean(framework?.id && framework?.status === 'DRAFT');
   const modalBg = useColorModeValue('white', 'gray.900');
   const tableHeaderBg = useColorModeValue('gray.100', 'gray.700');
+
+  const buildMetadata = useCallback(
+    (
+      existing: Record<string, unknown> | null | undefined,
+      wizardPatch: Record<string, unknown>
+    ): Record<string, unknown> => {
+      const next: Record<string, unknown> = { ...(existing ?? {}) };
+
+      const owner = isRecord(next.owner)
+        ? { ...(next.owner as Record<string, unknown>) }
+        : {};
+      if (user?.id) {
+        owner.userId = user.id;
+      }
+      if (user?.email) {
+        owner.email = user.email;
+      }
+      if (user?.organizationId) {
+        owner.organizationId = user.organizationId;
+      }
+      next.owner = owner;
+
+      const source = isRecord(next.source)
+        ? { ...(next.source as Record<string, unknown>) }
+        : {};
+      source.type = 'wizard';
+      next.source = source;
+
+      const wizard = isRecord(next.wizard)
+        ? { ...(next.wizard as Record<string, unknown>) }
+        : {};
+      Object.assign(wizard, wizardPatch);
+      next.wizard = wizard;
+
+      return next;
+    },
+    [user?.email, user?.id, user?.organizationId]
+  );
 
   useEffect(() => {
     if (!isOpen) {
@@ -262,6 +315,10 @@ const CustomFrameworkWizard = ({ isOpen, onClose, framework }: CustomFrameworkWi
     setErrorMessage(null);
 
     try {
+      const metadataPayload = buildMetadata(details.metadata, {
+        step: 'controls'
+      });
+
       if (frameworkId) {
         await updateFramework.mutateAsync({
           frameworkId,
@@ -269,13 +326,8 @@ const CustomFrameworkWizard = ({ isOpen, onClose, framework }: CustomFrameworkWi
             name: details.name.trim(),
             version: details.version.trim(),
             description: details.description.trim(),
-            family: details.family,
-            metadata: {
-              ...(details.metadata ?? {}),
-              wizard: {
-                step: 'controls'
-              }
-            }
+            family: toAllowedCustomFamily(details.family),
+            metadata: metadataPayload
           }
         });
       } else {
@@ -283,16 +335,16 @@ const CustomFrameworkWizard = ({ isOpen, onClose, framework }: CustomFrameworkWi
           name: details.name.trim(),
           version: details.version.trim(),
           description: details.description.trim(),
-          family: details.family,
-          metadata: {
-            wizard: {
-              step: 'controls'
-            }
-          }
+          family: toAllowedCustomFamily(details.family),
+          metadata: metadataPayload
         });
         setFrameworkId(created.id);
       }
 
+      setDetails((prev) => ({
+        ...prev,
+        metadata: metadataPayload
+      }));
       setActiveStep(1);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to save framework details.';
@@ -342,15 +394,14 @@ const CustomFrameworkWizard = ({ isOpen, onClose, framework }: CustomFrameworkWi
     setErrorMessage(null);
 
     try {
+      const metadataPayload = buildMetadata(details.metadata, {
+        completedAt: new Date().toISOString()
+      });
+
       await publishFramework.mutateAsync({
         frameworkId,
         payload: {
-          metadata: {
-            ...details.metadata,
-            wizard: {
-              completedAt: new Date().toISOString()
-            }
-          }
+          metadata: metadataPayload
         }
       });
       toast({
@@ -360,9 +411,14 @@ const CustomFrameworkWizard = ({ isOpen, onClose, framework }: CustomFrameworkWi
         duration: 6000,
         isClosable: true
       });
+      setDetails((prev) => ({
+        ...prev,
+        metadata: metadataPayload
+      }));
       onClose();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to publish framework.';
+      const message =
+        error instanceof Error ? error.message : 'Unable to publish the framework. Please try again.';
       setErrorMessage(message);
     } finally {
       setIsSaving(false);

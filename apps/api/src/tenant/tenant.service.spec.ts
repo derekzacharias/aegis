@@ -5,6 +5,10 @@ import { PrismaService } from '../prisma/prisma.service';
 describe('TenantService', () => {
   let service: TenantService;
   let prisma: jest.Mocked<PrismaService>;
+  let organizationFindUnique: jest.Mock;
+  let organizationUpdate: jest.Mock;
+  let organizationSettingsFindUnique: jest.Mock;
+  let organizationSettingsUpsert: jest.Mock;
 
   beforeEach(() => {
     prisma = {
@@ -18,6 +22,11 @@ describe('TenantService', () => {
       }
     } as unknown as jest.Mocked<PrismaService>;
 
+    organizationFindUnique = prisma.organization.findUnique as unknown as jest.Mock;
+    organizationUpdate = prisma.organization.update as unknown as jest.Mock;
+    organizationSettingsFindUnique = prisma.organizationSettings.findUnique as unknown as jest.Mock;
+    organizationSettingsUpsert = prisma.organizationSettings.upsert as unknown as jest.Mock;
+
     service = new TenantService(prisma);
   });
 
@@ -26,7 +35,7 @@ describe('TenantService', () => {
   });
 
   it('returns tenant profile for organization', async () => {
-    prisma.organization.findUnique.mockResolvedValueOnce({
+    organizationFindUnique.mockResolvedValueOnce({
       name: 'Aegis Corp',
       impactLevel: 'MODERATE',
       primaryContactEmail: 'admin@example.com',
@@ -44,14 +53,14 @@ describe('TenantService', () => {
   });
 
   it('throws when organization not found during get', async () => {
-    prisma.organization.findUnique.mockResolvedValueOnce(null);
+    organizationFindUnique.mockResolvedValueOnce(null);
 
     await expect(service.getProfile('missing')).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('updates tenant profile', async () => {
-    prisma.organization.findUnique.mockResolvedValueOnce({ id: 'org-1', slug: 'aegis' } as any);
-    prisma.organization.update.mockResolvedValueOnce({
+    organizationFindUnique.mockResolvedValueOnce({ id: 'org-1', slug: 'aegis' } as any);
+    organizationUpdate.mockResolvedValueOnce({
       name: 'New Name',
       impactLevel: 'HIGH',
       primaryContactEmail: null,
@@ -64,7 +73,7 @@ describe('TenantService', () => {
       primaryContactEmail: undefined
     });
 
-    expect(prisma.organization.update).toHaveBeenCalledWith({
+    expect(organizationUpdate).toHaveBeenCalledWith({
       where: { id: 'org-1' },
       data: {
         name: 'New Name',
@@ -79,7 +88,7 @@ describe('TenantService', () => {
   });
 
   it('prevents empty organization name on update', async () => {
-    prisma.organization.findUnique.mockResolvedValueOnce({ id: 'org-1', slug: 'slug' } as any);
+    organizationFindUnique.mockResolvedValueOnce({ id: 'org-1', slug: 'slug' } as any);
 
     await expect(
       service.updateProfile('org-1', {
@@ -91,7 +100,7 @@ describe('TenantService', () => {
   });
 
   it('throws when organization not found on update', async () => {
-    prisma.organization.findUnique.mockResolvedValueOnce(null);
+    organizationFindUnique.mockResolvedValueOnce(null);
 
     await expect(
       service.updateProfile('org-1', {
@@ -103,12 +112,12 @@ describe('TenantService', () => {
   });
 
   it('returns default antivirus settings when none stored', async () => {
-    prisma.organizationSettings.findUnique.mockResolvedValueOnce(null as any);
+    organizationSettingsFindUnique.mockResolvedValueOnce(null as any);
 
     const settings = await service.getAntivirusSettings('org-1');
 
     expect(settings).toEqual({ autoReleaseStrategy: 'pending', updatedAt: null });
-    expect(prisma.organizationSettings.findUnique).toHaveBeenCalledWith({
+    expect(organizationSettingsFindUnique).toHaveBeenCalledWith({
       where: { organizationId: 'org-1' },
       select: { antivirusAutoReleaseStrategy: true, updatedAt: true }
     });
@@ -116,7 +125,7 @@ describe('TenantService', () => {
 
   it('updates antivirus settings via upsert', async () => {
     const updatedAt = new Date('2025-11-04T09:00:00Z');
-    prisma.organizationSettings.upsert.mockResolvedValueOnce({
+    organizationSettingsUpsert.mockResolvedValueOnce({
       antivirusAutoReleaseStrategy: 'previous',
       updatedAt
     } as any);
@@ -125,7 +134,7 @@ describe('TenantService', () => {
       autoReleaseStrategy: 'previous'
     });
 
-    expect(prisma.organizationSettings.upsert).toHaveBeenCalledWith({
+    expect(organizationSettingsUpsert).toHaveBeenCalledWith({
       where: { organizationId: 'org-1' },
       update: { antivirusAutoReleaseStrategy: 'previous' },
       create: { organizationId: 'org-1', antivirusAutoReleaseStrategy: 'previous' },

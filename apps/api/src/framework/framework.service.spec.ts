@@ -315,6 +315,7 @@ describe('FrameworkService', () => {
       status: 'DRAFT',
       isCustom: true,
       controlCount: 5,
+      createdById: 'user-1',
       createdAt: new Date('2024-01-01T00:00:00.000Z'),
       updatedAt: new Date('2024-01-02T00:00:00.000Z'),
       publishedAt: null,
@@ -335,7 +336,11 @@ describe('FrameworkService', () => {
       createdAt: new Date('2024-01-01T00:00:00.000Z'),
       updatedAt: new Date('2024-05-02T00:00:00.000Z'),
       publishedAt: new Date('2024-05-02T00:00:00.000Z'),
-      metadata: { wizard: { completedAt: '2024-05-02T00:00:00.000Z' } },
+      metadata: {
+        wizard: { completedAt: '2024-05-02T00:00:00.000Z' },
+        owner: { userId: 'user-1', organizationId: 'org-1' },
+        source: { type: 'wizard' }
+      },
       organizationId: 'org-1'
     } as any);
     prisma.frameworkWarmupCache.deleteMany.mockResolvedValue({ count: 0 });
@@ -347,7 +352,11 @@ describe('FrameworkService', () => {
     });
 
     const result = await service.publishFramework('org-1', 'framework-1', 'user-1', {
-      metadata: { wizard: { completedAt: '2024-05-02T00:00:00.000Z' } }
+      metadata: {
+        wizard: { completedAt: '2024-05-02T00:00:00.000Z' },
+        source: { type: 'wizard' },
+        owner: { userId: 'user-1', organizationId: 'org-1' }
+      }
     });
 
     expect(prisma.framework.update).toHaveBeenCalledWith({
@@ -356,7 +365,11 @@ describe('FrameworkService', () => {
         status: 'PUBLISHED',
         updatedById: 'user-1',
         publishedAt: expect.any(Date),
-        metadata: { wizard: { completedAt: '2024-05-02T00:00:00.000Z' } }
+        metadata: {
+          wizard: { completedAt: '2024-05-02T00:00:00.000Z' },
+          source: { type: 'wizard' },
+          owner: { userId: 'user-1', organizationId: 'org-1' }
+        }
       }
     });
     expect(result.status).toEqual('PUBLISHED');
@@ -377,6 +390,68 @@ describe('FrameworkService', () => {
         attempt: 1
       })
     );
+  });
+
+  it('rejects publishing when metadata owner does not match the creator', async () => {
+    prisma.framework.findFirst.mockResolvedValue({
+      id: 'framework-1',
+      slug: 'framework-1',
+      name: 'Custom Framework',
+      version: '1.0',
+      description: 'Internal baseline',
+      family: 'CUSTOM',
+      status: 'DRAFT',
+      isCustom: true,
+      controlCount: 5,
+      createdById: 'owner-1',
+      createdAt: new Date('2024-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2024-01-02T00:00:00.000Z'),
+      publishedAt: null,
+      metadata: null,
+      organizationId: 'org-1'
+    } as any);
+    prisma.control.count.mockResolvedValue(5);
+
+    await expect(
+      service.publishFramework('org-1', 'framework-1', 'user-1', {
+        metadata: {
+          source: { type: 'agent' },
+          owner: { userId: 'different-user', organizationId: 'org-1' }
+        }
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.framework.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects publishing when metadata owner references a different organization', async () => {
+    prisma.framework.findFirst.mockResolvedValue({
+      id: 'framework-1',
+      slug: 'framework-1',
+      name: 'Custom Framework',
+      version: '1.0',
+      description: 'Internal baseline',
+      family: 'CUSTOM',
+      status: 'DRAFT',
+      isCustom: true,
+      controlCount: 5,
+      createdById: 'user-1',
+      createdAt: new Date('2024-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2024-01-02T00:00:00.000Z'),
+      publishedAt: null,
+      metadata: null,
+      organizationId: 'org-1'
+    } as any);
+    prisma.control.count.mockResolvedValue(5);
+
+    await expect(
+      service.publishFramework('org-1', 'framework-1', 'user-1', {
+        metadata: {
+          source: { type: 'agent' },
+          owner: { userId: 'user-1', organizationId: 'org-2' }
+        }
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.framework.update).not.toHaveBeenCalled();
   });
 
   it('deletes a custom framework when no dependencies exist', async () => {

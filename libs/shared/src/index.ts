@@ -13,3 +13,5 @@ export * from './lib/tenant.types';
 export * from './lib/security.types';
 export * from './lib/framework.jobs';
 export * from './lib/crosswalk';
+export * from './lib/docs/docs.types';
+export { docsCollection } from './lib/docs/docs.content';

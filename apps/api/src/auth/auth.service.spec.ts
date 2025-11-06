@@ -194,10 +194,10 @@ describe('AuthService', () => {
 
       const service = createService();
 
-      const result = await service.login({
-        email: userRecord.email,
-        password
-      });
+    const result = await service.login({
+      email: userRecord.email,
+      password
+    });
 
       expect(result.tokens.accessToken).toBe('access-login');
       expect(result.user.id).toBe(userRecord.id);
@@ -255,14 +255,54 @@ describe('AuthService', () => {
         })
       ).rejects.toMatchObject({
         response: expect.objectContaining({ code: 'PASSWORD_RESET_REQUIRED' })
-      });
+    });
 
-      expect(mockPrisma.user.updateMany).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
-        data: expect.objectContaining({ refreshTokenInvalidatedAt: expect.any(Date) })
-      });
+    expect(mockPrisma.user.updateMany).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      data: expect.objectContaining({ refreshTokenInvalidatedAt: expect.any(Date) })
     });
   });
+
+  it('records service token issuance when a service user logs in', async () => {
+    const password = 'Password!23';
+    const passwordHash = await hash(password, 12);
+    const serviceUser = {
+      id: 'agent-1',
+      email: 'reports-agent@aegis.local',
+      firstName: 'Reports',
+      lastName: 'Agent',
+      role: UserRole.ANALYST,
+      passwordHash,
+      refreshTokenHash: null,
+      organizationId: 'org-1',
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    mockPrisma.user.findUnique.mockResolvedValueOnce(serviceUser);
+    mockJwtService.signAsync.mockResolvedValueOnce('access-token').mockResolvedValueOnce('refresh-token');
+    mockPrisma.user.update.mockResolvedValue({});
+
+    const service = createService();
+
+    await service.login({
+      email: serviceUser.email,
+      password
+    });
+
+    expect(mockPrisma.userProfileAudit.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'agent-1',
+        changes: expect.objectContaining({
+          serviceToken: expect.objectContaining({
+            current: 'issued',
+            source: 'login'
+          })
+        })
+      })
+    });
+  });
+});
 
   describe('refresh', () => {
     it('refreshes tokens and persists new hashes', async () => {

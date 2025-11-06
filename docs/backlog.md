@@ -104,7 +104,7 @@ Our immediate goal is to mature Aegis into a framework-agnostic GRC platform tha
 7. **Assessment Lifecycle Hardening** – ✅ Replace in-memory stores with Prisma persistence, expose full CRUD (status transitions, owner updates, control/task linkage), add audit logging, and ship frontend workspace tooling. _Next: add granular progress caching for large assessments and bulk status update APIs for control groups._
 8. **Service User Playbooks** – ✅ Documented provisioning and RBAC guidance, added structured refresh-failure audits/metrics, and published `/users/profile` monitoring notes so operators can trace agent activity end-to-end.
 9. **User Provisioning Workflow** – ✅ Extended the Settings › Users experience with invitation flows, forced password resets, bulk role management, and CSV exports for FedRAMP audit packages. _Next: surface invitation acceptance telemetry in the admin dashboard and wire email delivery to tenant-configurable providers._
-10. **Profile & Notification Sync** – ✅ Settings → Profile now surfaces `UserProfileAudit` history, admin role controls, timezone/phone helpers, lazy audit loading, and worker notifications now hydrate payloads with enriched profile metadata plus alerting for stale or incomplete contact details. ✅ Ops dashboard presents contact completeness metrics with attention lists, and a scheduled worker now sends reminders to users with missing or stale contact fields. _Next: trend completeness over time, expose reminder delivery telemetry in the ops dashboard, and add tenant controls for reminder cadence._
+10. **Profile & Notification Sync** – ✅ Settings → Profile now surfaces `UserProfileAudit` history, admin role controls, timezone/phone helpers, lazy audit loading, and worker notifications now hydrate payloads with enriched profile metadata plus alerting for stale or incomplete contact details. ✅ A scheduled worker still sends reminders to users with missing or stale contact fields, while the dashboard contact completeness widget has been retired in favor of enforcing required fields directly within the profile form. _Next: monitor adherence to the required fields and revisit reminder cadence/telemetry needs once the new flow beds in._
 11. **Custom Framework Publish Hooks** – ✅ Publishing a framework now enqueues a worker warmup job that refreshes crosswalk suggestions, precomputes control catalog facets, writes cache snapshots, and retries up to three times with metrics/logging. ✅ A follow-on reporter processor fans out `report.generate` jobs for complete assessments referencing the framework, with retry/backoff and telemetry. _Next: surface warmup/report status in the admin UI and extend caching to target-specific crosswalk filters._
 12. **Agent-driven Framework Imports** – Expose CLI/script examples for seeding frameworks via the new API (CSV/JSON payloads), add smoke tests, and enforce metadata/ownership validation before publish.
 13. **Automated Assessment Methodology** – Define how automated compliance assessments will execute across customer-selected frameworks by comparing resident agents versus SSH-mediated runs, spiking orchestrations with tools like Ansible and Chef InSpec, and capturing decision criteria (coverage depth, rollout complexity, operational risk). Deliverables include a recommendation doc, early proof-of-concept jobs, and integration guidance for the selected method.
@@ -273,3 +273,102 @@ Sprint 1 (MVP) Objectives:
 5. Unit tests for parser and API.
 
 Use PostgreSQL, SQLAlchemy, JWT auth, and Celery for async jobs.
+
+## Agent Automation Backlog (A-Series)
+
+### Epic A-001 — IaC Policy Guard (A-001)
+- **Objective:** Prevent cloud misconfigurations that could enable attacker lateral movement or data exposure.
+- **MITRE ATT&CK:** Defense Evasion → T1562.001 (Impair Defenses / Modify Tools)
+- **NIST Alignment:** CM-2, CM-6, CA-7
+- **Spec:** `ops/mcp/aegis-mcp-iac.yaml`
+
+| Story ID | User Story | LangChain / MCP Implementation |
+| --- | --- | --- |
+| A-001-S1 | As a security engineer, I want to validate Terraform modules so that no public SG rules exist. | LangChain agent calls MCP tool `terraform_validate`; parses output and flags CIDR 0.0.0.0/0. |
+| A-001-S2 | As a DevOps engineer, I want automated remediation patches for violations. | Agent uses LLM to draft HCL diffs and opens PR comment via `mcp/git_client`. |
+| A-001-S3 | As a compliance officer, I need a daily report of IaC findings mapped to NIST controls. | Agent summarizes findings, tags controls (CM-2, CM-6), exports CSV to S3. |
+
+**Tasks**
+- Build `aegis-mcp-iac` server exposing Terraform tools (`terraform_validate`, `check_security_groups`, `check_iam_wildcards`, `check_s3_public`).
+- Add LangChain ReAct policy guard agent with prompt-level controls on remediation logic.
+- Configure GitHub Action trigger on PR to run validation and annotate findings.
+
+### Epic A-002 — AWS Read-Only Posture Scan (A-002)
+- **Objective:** Detect and report IAM and network misconfigurations.
+- **MITRE ATT&CK:** Discovery → T1087, T1069
+- **NIST Alignment:** AC-2, AC-6, CA-7
+
+| Story ID | User Story | LangChain / MCP Implementation |
+| --- | --- | --- |
+| A-002-S1 | As a security analyst, I want to enumerate IAM roles with wildcards. | MCP AWS server exposes `list_roles`, `get_policy_summary`; LangChain agent aggregates findings. |
+| A-002-S2 | As a cloud architect, I need a summary of public S3 buckets and open SGs. | Agent uses boto3 tools through MCP to collect resources, filters public entries. |
+| A-002-S3 | As a team lead, I need a STIX report of findings for MISP. | Agent formats output into STIX 2.1 JSON and pushes via MISP API. |
+
+**Tasks**
+- Deploy `aegis-mcp-aws-readonly` server with STS-assumed role credentials.
+- Configure agent scheduling (Lambda or cron) with MCP token rotation.
+- Index results in OpenSearch, tagging ATT&CK techniques for dashboards.
+
+### Epic A-003 — Elastic Alert Summarizer (A-003)
+- **Objective:** Automate alert triage to cut Mean Time to Respond.
+- **MITRE ATT&CK:** Collection → T1005, T1560
+- **NIST Alignment:** IR-4, IR-5, AU-6
+
+| Story ID | User Story | LangChain / MCP Implementation |
+| --- | --- | --- |
+| A-003-S1 | As an analyst, I want context for each Elastic alert. | MCP server `elastic_query` returns events; LangChain agent summarizes timeline. |
+| A-003-S2 | As a SOC lead, I want automatic Jira tickets for critical alerts. | Agent calls `mcp/jira_client` to open ticket with summary and IOC list. |
+| A-003-S3 | As a manager, I want MTTR metrics exported daily. | Agent computes alert-to-ticket time and sends CSV to S3. |
+
+**Tasks**
+- Build Elastic MCP connector exposing `search_elastic` and `get_alert`.
+- Implement LangChain chain for summary → ticket workflow with SLA guardrails.
+- Log agent actions to dedicated Elastic audit index.
+
+### Epic A-004 — Credential Leak Detector (A-004)
+- **Objective:** Stop secret exposure before code merge.
+- **MITRE ATT&CK:** Credential Access → T1552.001
+- **NIST Alignment:** IA-5, SI-12, SI-4
+
+| Story ID | User Story | LangChain / MCP Implementation |
+| --- | --- | --- |
+| A-004-S1 | As a developer, I want PRs scanned for secrets. | Agent uses `mcp/git_diff_scan` (TruffleHog/Gitleaks). |
+| A-004-S2 | As a security reviewer, I need severity and remediation advice. | LLM classifies findings (Critical/High/Low) and suggests rotation steps. |
+| A-004-S3 | As a compliance auditor, I want SIEM logs of blocked commits. | Agent writes JSON event to `aegis-audit` index. |
+
+**Tasks**
+- Integrate agent into GitHub Action check for PR gating.
+- Define secret detection patterns in config map and keep them version-controlled.
+- Add notification hook to Slack/Teams for high severity findings.
+
+### Epic A-005 — Runbook Responder (A-005)
+- **Objective:** Guide operators through incident steps and document actions.
+- **MITRE ATT&CK:** Command & Control → T1071, T1105
+- **NIST Alignment:** IR-4, IR-8, AU-12
+
+| Story ID | User Story | LangChain / MCP Implementation |
+| --- | --- | --- |
+| A-005-S1 | As an analyst, I want step-by-step playbook guidance. | LangChain retriever (LlamaIndex) indexes runbooks; agent walks user through steps. |
+| A-005-S2 | As a manager, I want all actions logged for audit. | Agent sends actions to `mcp/audit_logger`. |
+| A-005-S3 | As a SOC lead, I want incident summaries posted to Teams. | Agent uses `mcp/teams_bot` to send status updates. |
+
+**Tasks**
+- Build runbook vector index (LlamaIndex store in secured bucket).
+- Configure MCP connectors for audit logging and Teams chat delivery.
+- Add LangChain memory module for session context and completion tracking.
+
+### A-Series Summary Mapping
+
+| Epic | MITRE Tactic | Techniques | NIST Controls | LangChain Integration Focus |
+| --- | --- | --- | --- | --- |
+| IaC Policy Guard | Defense Evasion | T1562.001 | CM-2, CM-6, CA-7 | Terraform tools via MCP + PR patches |
+| AWS Posture Scan | Discovery | T1087, T1069 | AC-2, AC-6, CA-7 | boto3 read-only MCP server |
+| Elastic Summarizer | Collection | T1005, T1560 | IR-4, IR-5, AU-6 | Elastic MCP connector |
+| Credential Leak Detector | Credential Access | T1552.001 | IA-5, SI-12, SI-4 | Git diff scanner MCP hook |
+| Runbook Responder | Command & Control | T1071, T1105 | IR-4, IR-8, AU-12 | Vector retriever + Teams bot MCP |
+
+**Next Steps**
+1. Prototype Epic A-001 first (highest impact, lowest dependency).
+2. Implement MCP server spec (`ops/mcp/aegis-mcp-iac.yaml`) and supporting Terraform parsing utilities.
+3. Wire LangChain ReAct agent to MCP server; surface findings through GitHub PR comments.
+4. Sync backlog with Codex/Jira via MCP adapter and map outputs to NIST/ATT&CK dashboards.

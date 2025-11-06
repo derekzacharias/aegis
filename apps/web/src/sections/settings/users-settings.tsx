@@ -54,7 +54,8 @@ import {
   useForcePasswordReset,
   useRevokeInvite,
   useUserInvites,
-  useUsers
+  useUsers,
+  useRefreshFailures
 } from '../../hooks/use-users';
 import { formatPhoneNumber } from '../../utils/phone';
 
@@ -93,6 +94,23 @@ const formatDateTime = (value: string | null | undefined) => {
     return '—';
   }
   return dayjs(value).format('MMM D, YYYY h:mm A');
+};
+
+const formatMetadataValue = (value: unknown) => {
+  if (value === null || value === undefined) {
+    return '—';
+  }
+  if (typeof value === 'string') {
+    return value.length > 0 ? value : '—';
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return '—';
+  }
 };
 
 const getErrorMessage = (error: unknown): string => {
@@ -135,6 +153,12 @@ const UsersSettings = () => {
   const { data: users = [], isLoading, isFetching, error } = useUsers(isAdmin);
   const { data: invites = [], isLoading: isInvitesLoading, isFetching: isInvitesFetching } =
     useUserInvites(isAdmin);
+  const {
+    data: refreshFailures = [],
+    isLoading: isRefreshLoading,
+    isFetching: isRefreshFetching,
+    error: refreshFailuresError
+  } = useRefreshFailures(isAdmin, 20);
   const createUser = useCreateUser();
   const createInvite = useCreateInvite();
   const revokeInvite = useRevokeInvite();
@@ -509,6 +533,67 @@ const UsersSettings = () => {
 
   return (
     <VStack align="stretch" spacing={6}>
+      <Card>
+        <CardHeader display="flex" alignItems="center" justifyContent="space-between">
+          <Box>
+            <Heading size="md">Refresh token failures</Heading>
+            <Text color="gray.500" fontSize="sm">
+              Investigate recent refresh token invalidations for users and service accounts.
+            </Text>
+          </Box>
+          {isRefreshFetching ? <Spinner size="sm" /> : null}
+        </CardHeader>
+        <CardBody>
+          {isRefreshLoading ? (
+            <Box display="flex" alignItems="center" justifyContent="center" py={6}>
+              <Spinner />
+            </Box>
+          ) : refreshFailuresError ? (
+            <Text color="red.500">{getErrorMessage(refreshFailuresError)}</Text>
+          ) : refreshFailures.length === 0 ? (
+            <Text color="gray.500">No refresh failures recorded in the latest activity window.</Text>
+          ) : (
+            <Stack spacing={3}>
+              {refreshFailures.map((failure) => (
+                <Box key={failure.id} borderWidth="1px" borderRadius="md" p={4}>
+                  <HStack justifyContent="space-between" alignItems="flex-start">
+                    <Box>
+                      <Text fontWeight="semibold">{failure.email}</Text>
+                      {failure.name ? (
+                        <Text fontSize="sm" color="gray.500">
+                          {failure.name}
+                        </Text>
+                      ) : null}
+                    </Box>
+                    <HStack spacing={2}>
+                      <Badge colorScheme={failure.isServiceUser ? 'purple' : 'gray'}>
+                        {failure.isServiceUser ? 'Service user' : 'User'}
+                      </Badge>
+                      <Badge colorScheme="red">{failure.reason ?? 'unknown'}</Badge>
+                    </HStack>
+                  </HStack>
+                  <Text fontSize="sm" color="gray.500" mt={2}>
+                    {formatDateTime(failure.occurredAt)}
+                  </Text>
+                  {Object.keys(failure.metadata).length > 0 ? (
+                    <Stack spacing={1} mt={2} fontSize="sm">
+                      {Object.entries(failure.metadata).map(([key, value]) => (
+                        <Text key={`${failure.id}-${key}`}>
+                          <Text as="span" fontWeight="semibold">
+                            {key}:
+                          </Text>{' '}
+                          {formatMetadataValue(value)}
+                        </Text>
+                      ))}
+                    </Stack>
+                  ) : null}
+                </Box>
+              ))}
+            </Stack>
+          )}
+        </CardBody>
+      </Card>
+
       <Card as="form" onSubmit={handleSubmit}>
         <CardHeader>
           <Heading size="md">Create User</Heading>

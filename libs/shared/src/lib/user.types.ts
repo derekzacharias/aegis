@@ -15,6 +15,17 @@ export interface UserProfileAuditEntry {
   createdAt: string;
 }
 
+export interface UserRefreshFailure {
+  id: string;
+  userId: string;
+  email: string;
+  name: string | null;
+  reason: string | null;
+  metadata: Record<string, unknown>;
+  occurredAt: string;
+  isServiceUser: boolean;
+}
+
 export interface CreateUserInviteInput {
   email: string;
   role: UserRole;

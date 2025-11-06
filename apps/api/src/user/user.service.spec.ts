@@ -67,6 +67,7 @@ describe('UserService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPrisma.userProfileAudit.findMany.mockResolvedValue([]);
   });
 
   describe('updateProfile', () => {
@@ -203,6 +204,83 @@ describe('UserService', () => {
           actorId: 'admin-1'
         })
       });
+    });
+  });
+
+  describe('listRefreshFailures', () => {
+    const adminActor: AuthenticatedUser = {
+      id: 'admin-1',
+      email: 'admin@example.com',
+      organizationId: 'org-1',
+      role: UserRole.ADMIN
+    };
+
+    it('requires admin privileges', async () => {
+      const analystActor: AuthenticatedUser = {
+        id: 'user-2',
+        email: 'analyst@example.com',
+        organizationId: 'org-1',
+        role: UserRole.ANALYST
+      };
+
+      await expect(service.listRefreshFailures(analystActor, 10)).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('returns normalized failure entries', async () => {
+      const occurredAt = makeDate();
+      mockPrisma.userProfileAudit.findMany.mockResolvedValueOnce([
+        {
+          id: 'audit-1',
+          userId: 'user-2',
+          user: {
+            email: 'reports-agent@aegis.local',
+            firstName: 'Reports',
+            lastName: 'Agent'
+          },
+          changes: {
+            refreshToken: {
+              previous: 'active',
+              current: 'invalidated',
+              reason: 'hash-mismatch',
+              metadata: { attempt: 'refresh' }
+            }
+          },
+          createdAt: occurredAt
+        }
+      ]);
+
+      const result = await service.listRefreshFailures(adminActor, 10);
+
+      expect(mockPrisma.userProfileAudit.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            user: expect.objectContaining({ organizationId: adminActor.organizationId })
+          }),
+          take: 10
+        })
+      );
+      expect(result).toEqual([
+        {
+          id: 'audit-1',
+          userId: 'user-2',
+          email: 'reports-agent@aegis.local',
+          name: 'Reports Agent',
+          reason: 'hash-mismatch',
+          metadata: { attempt: 'refresh' },
+          occurredAt: occurredAt.toISOString(),
+          isServiceUser: true
+        }
+      ]);
+    });
+
+    it('caps the limit to 100 entries', async () => {
+      mockPrisma.userProfileAudit.findMany.mockResolvedValueOnce([]);
+
+      await service.listRefreshFailures(adminActor, 250);
+
+      expect(mockPrisma.userProfileAudit.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ take: 100 })
+      );
     });
   });
 });

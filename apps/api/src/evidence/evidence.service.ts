@@ -59,6 +59,11 @@ type EvidenceItemWithRelations = Prisma.EvidenceItemGetPayload<{
         };
       };
     };
+    statusHistory: {
+      include: {
+        changedBy: true;
+      };
+    };
   };
 }>;
 
@@ -104,25 +109,7 @@ export class EvidenceService {
   async list(organizationId: string): Promise<EvidenceRecord[]> {
     const items = await this.prisma.evidenceItem.findMany({
       where: { organizationId },
-      include: {
-        reviewer: true,
-        uploadedBy: true,
-        frameworks: {
-          include: {
-            framework: true
-          }
-        },
-        controls: {
-          include: {
-            assessmentControl: {
-              include: {
-                assessment: true,
-                control: true
-              }
-            }
-          }
-        }
-      },
+      include: this.getEvidenceInclude(),
       orderBy: {
         uploadedAt: 'desc'
       }
@@ -134,25 +121,7 @@ export class EvidenceService {
   async get(organizationId: string, evidenceId: string): Promise<EvidenceRecord> {
     const item = await this.prisma.evidenceItem.findUnique({
       where: { id: evidenceId },
-      include: {
-        reviewer: true,
-        uploadedBy: true,
-        frameworks: {
-          include: {
-            framework: true
-          }
-        },
-        controls: {
-          include: {
-            assessmentControl: {
-              include: {
-                assessment: true,
-                control: true
-              }
-            }
-          }
-        }
-      }
+      include: this.getEvidenceInclude()
     });
 
     if (!item || item.organizationId !== organizationId) {
@@ -268,6 +237,8 @@ export class EvidenceService {
 
     await this.ensureFrameworksExist(user.organizationId, combinedFrameworkIds);
 
+    const evidenceInclude = this.getEvidenceInclude();
+
     const extension = this.normalizeExtension(payload.fileType);
     const originalFilename = `${this.normalizeFilenameBase(name)}.${extension}`;
     const storageKey = this.buildStorageKey(user.organizationId, originalFilename);
@@ -330,25 +301,7 @@ export class EvidenceService {
             }
           : undefined
       },
-      include: {
-        reviewer: true,
-        uploadedBy: true,
-        frameworks: {
-          include: {
-            framework: true
-          }
-        },
-        controls: {
-          include: {
-            assessmentControl: {
-              include: {
-                assessment: true,
-                control: true
-              }
-            }
-          }
-        }
-      }
+      include: evidenceInclude
     });
 
     await this.prisma.evidenceStatusHistory.create({
@@ -714,27 +667,11 @@ export class EvidenceService {
     evidenceId: string,
     payload: UpdateEvidenceMetadataDto
   ): Promise<EvidenceRecord> {
+    const evidenceInclude = this.getEvidenceInclude();
+
     const evidence = await this.prisma.evidenceItem.findUnique({
       where: { id: evidenceId },
-      include: {
-        reviewer: true,
-        uploadedBy: true,
-        frameworks: {
-          include: {
-            framework: true
-          }
-        },
-        controls: {
-          include: {
-            assessmentControl: {
-              include: {
-                assessment: true,
-                control: true
-              }
-            }
-          }
-        }
-      }
+      include: evidenceInclude
     });
 
     if (!evidence || evidence.organizationId !== user.organizationId) {
@@ -844,25 +781,7 @@ export class EvidenceService {
     const updated = await this.prisma.evidenceItem.update({
       where: { id: evidence.id },
       data: updateData,
-      include: {
-        reviewer: true,
-        uploadedBy: true,
-        frameworks: {
-          include: {
-            framework: true
-          }
-        },
-        controls: {
-          include: {
-            assessmentControl: {
-              include: {
-                assessment: true,
-                control: true
-              }
-            }
-          }
-        }
-      }
+      include: evidenceInclude
     });
 
     return this.toEvidenceRecord(updated);
@@ -873,27 +792,11 @@ export class EvidenceService {
     evidenceId: string,
     payload: UpdateEvidenceLinksDto
   ): Promise<EvidenceRecord> {
+    const evidenceInclude = this.getEvidenceInclude();
+
     const evidence = await this.prisma.evidenceItem.findUnique({
       where: { id: evidenceId },
-      include: {
-        reviewer: true,
-        uploadedBy: true,
-        frameworks: {
-          include: {
-            framework: true
-          }
-        },
-        controls: {
-          include: {
-            assessmentControl: {
-              include: {
-                assessment: true,
-                control: true
-              }
-            }
-          }
-        }
-      }
+      include: evidenceInclude
     });
 
     if (!evidence || evidence.organizationId !== user.organizationId) {
@@ -979,25 +882,7 @@ export class EvidenceService {
 
     const refreshed = await this.prisma.evidenceItem.findUnique({
       where: { id: evidence.id },
-      include: {
-        reviewer: true,
-        uploadedBy: true,
-        frameworks: {
-          include: {
-            framework: true
-          }
-        },
-        controls: {
-          include: {
-            assessmentControl: {
-              include: {
-                assessment: true,
-                control: true
-              }
-            }
-          }
-        }
-      }
+      include: evidenceInclude
     });
 
     if (!refreshed) {
@@ -1027,27 +912,11 @@ export class EvidenceService {
     evidenceId: string,
     payload: UpdateEvidenceStatusDto
   ): Promise<EvidenceRecord> {
+    const evidenceInclude = this.getEvidenceInclude();
+
     const evidence = await this.prisma.evidenceItem.findUnique({
       where: { id: evidenceId },
-      include: {
-        reviewer: true,
-        uploadedBy: true,
-        frameworks: {
-          include: {
-            framework: true
-          }
-        },
-        controls: {
-          include: {
-            assessmentControl: {
-              include: {
-                assessment: true,
-                control: true
-              }
-            }
-          }
-        }
-      }
+      include: evidenceInclude
     });
 
     if (!evidence || evidence.organizationId !== user.organizationId) {
@@ -1085,25 +954,7 @@ export class EvidenceService {
     const updated = await this.prisma.evidenceItem.update({
       where: { id: evidence.id },
       data: updateData,
-      include: {
-        reviewer: true,
-        uploadedBy: true,
-        frameworks: {
-          include: {
-            framework: true
-          }
-        },
-        controls: {
-          include: {
-            assessmentControl: {
-              include: {
-                assessment: true,
-                control: true
-              }
-            }
-          }
-        }
-      }
+      include: evidenceInclude
     });
 
     await this.prisma.evidenceStatusHistory.create({
@@ -1248,6 +1099,27 @@ export class EvidenceService {
       ? (metadata.nextAction as string)
       : this.deriveNextAction(item));
 
+    const statusHistory = (item.statusHistory ?? []).map((history) => {
+      const changedBy = history.changedBy
+        ? {
+            id: history.changedBy.id,
+            email: history.changedBy.email,
+            name: [history.changedBy.firstName, history.changedBy.lastName]
+              .filter(Boolean)
+              .join(' ') || history.changedBy.email
+          }
+        : null;
+
+      return {
+        id: history.id,
+        fromStatus: history.fromStatus ?? null,
+        toStatus: history.toStatus,
+        note: history.note ?? null,
+        changedAt: history.changedAt.toISOString(),
+        changedBy
+      };
+    });
+
     return {
       id: item.id,
       name: item.name,
@@ -1276,7 +1148,8 @@ export class EvidenceService {
       lastScanSignatureVersion: item.lastScanSignatureVersion ?? null,
       lastScanSummary: item.lastScanNotes ?? null,
       lastScanDurationMs: item.lastScanDurationMs ?? null,
-      lastScanBytes: item.lastScanBytes ?? null
+      lastScanBytes: item.lastScanBytes ?? null,
+      statusHistory
     };
   }
 
@@ -1306,6 +1179,15 @@ export class EvidenceService {
             }
           }
         }
+      },
+      statusHistory: {
+        include: {
+          changedBy: true
+        },
+        orderBy: {
+          changedAt: 'desc'
+        },
+        take: 10
       }
     };
   }

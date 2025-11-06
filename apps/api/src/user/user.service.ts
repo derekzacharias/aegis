@@ -13,7 +13,8 @@ import {
   ForcePasswordResetResult,
   UserInviteSummary,
   UserProfile,
-  UserProfileAuditEntry
+  UserProfileAuditEntry,
+  UserRefreshFailure
 } from '@compliance/shared';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -517,12 +518,39 @@ export class UserService {
       'avatarUrl',
       'bio'
     ];
+    const requiredFields: Array<keyof UpdateProfileDto & keyof UserProfileSelectable> = [
+      'firstName',
+      'lastName',
+      'jobTitle',
+      'phoneNumber',
+      'timezone'
+    ];
+    const requiredFieldLabels: Record<string, string> = {
+      firstName: 'First name',
+      lastName: 'Last name',
+      jobTitle: 'Job title',
+      phoneNumber: 'Phone number',
+      timezone: 'Timezone'
+    };
 
     for (const field of fields) {
       if (Object.prototype.hasOwnProperty.call(payload, field)) {
         const rawValue = payload[field];
-        const normalizedRaw = typeof rawValue === 'string' ? rawValue.trim() : rawValue;
-        const normalized = normalizedRaw === '' ? null : normalizedRaw ?? null;
+        let normalized: string | null;
+
+        if (typeof rawValue === 'string') {
+          const trimmed = rawValue.trim();
+          normalized = trimmed.length === 0 ? null : trimmed;
+        } else if (rawValue === null || rawValue === undefined) {
+          normalized = null;
+        } else {
+          normalized = rawValue as string;
+        }
+
+        if (requiredFields.includes(field) && (normalized === null || normalized === undefined)) {
+          const label = requiredFieldLabels[field as string] ?? field;
+          throw new BadRequestException(`${label} is required.`);
+        }
 
         if (normalized !== existing[field]) {
           (updateData as Record<string, unknown>)[field] = normalized;
@@ -684,6 +712,75 @@ export class UserService {
       changes: audit.changes as Record<string, { previous: unknown; current: unknown }>,
       createdAt: audit.createdAt.toISOString()
     }));
+  }
+
+  async listRefreshFailures(actor: AuthenticatedUser, take = 20): Promise<UserRefreshFailure[]> {
+    this.ensureAdmin(actor);
+
+    const limit = Math.min(Math.max(take, 1), 100);
+
+    const audits = await this.prisma.userProfileAudit.findMany({
+      where: {
+        user: {
+          organizationId: actor.organizationId
+        },
+        changes: {
+          path: ['refreshToken', 'current'],
+          equals: 'invalidated'
+        }
+      },
+      include: {
+        user: {
+          select: {
+            email: true,
+            firstName: true,
+            lastName: true
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit
+    });
+
+    return audits.map((audit) => {
+      const user =
+        (
+          audit as unknown as {
+            user?: { email: string; firstName: string | null; lastName: string | null };
+          }
+        ).user ?? null;
+      const changes = (audit.changes ?? {}) as Record<string, unknown>;
+      const refreshDetails =
+        changes &&
+        typeof changes === 'object' &&
+        !Array.isArray(changes) &&
+        'refreshToken' in changes &&
+        changes.refreshToken
+          ? (changes.refreshToken as Record<string, unknown>)
+          : {};
+      const reasonValue = refreshDetails['reason'];
+      const metadataValue = refreshDetails['metadata'];
+      const metadata =
+        metadataValue && typeof metadataValue === 'object' && !Array.isArray(metadataValue)
+          ? (metadataValue as Record<string, unknown>)
+          : {};
+
+      const email = user?.email ?? 'unknown';
+      const fullName = user
+        ? [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email
+        : null;
+
+      return {
+        id: audit.id,
+        userId: audit.userId,
+        email,
+        name: fullName,
+        reason: typeof reasonValue === 'string' ? reasonValue : null,
+        metadata,
+        occurredAt: audit.createdAt.toISOString(),
+        isServiceUser: email.toLowerCase().includes('-agent@')
+      };
+    });
   }
 
   private generateToken(): { token: string; hash: string } {

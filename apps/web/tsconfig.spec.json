@@ -5,7 +5,7 @@
     "outDir": "../../dist/out-tsc",
     "module": "commonjs",
     "lib": ["dom", "dom.iterable", "es2021"],
-    "types": ["jest", "@testing-library/jest-dom", "vite/client"]
+    "types": ["jest", "@testing-library/jest-dom", "node", "vite/client"]
   },
   "include": ["src/**/*.spec.ts", "src/**/*.spec.tsx", "src/**/*.test.ts", "src/**/*.test.tsx"]
 }

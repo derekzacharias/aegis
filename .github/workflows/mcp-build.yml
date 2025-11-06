@@ -1,0 +1,32 @@
+name: Build MCP Images
+
+on:
+  push:
+    paths:
+      - "ops/mcp/**"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build IaC MCP image
+        uses: docker/build-push-action@v5
+        with:
+          context: ops/mcp/aegis-mcp-iac
+          file: ops/mcp/aegis-mcp-iac/Dockerfile
+          push: false
+          tags: local/aegis-mcp-iac:ci
+
+      - name: Build AWS Read-Only MCP image
+        uses: docker/build-push-action@v5
+        with:
+          context: ops/mcp/aegis-mcp-aws-readonly
+          file: ops/mcp/aegis-mcp-aws-readonly/Dockerfile
+          push: false
+          tags: local/aegis-mcp-aws-readonly:ci

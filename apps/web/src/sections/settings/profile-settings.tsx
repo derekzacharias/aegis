@@ -41,18 +41,31 @@ type ProfileUpdatePayload = Partial<
   Pick<UserProfile, 'firstName' | 'lastName' | 'jobTitle' | 'phoneNumber' | 'timezone' | 'avatarUrl' | 'bio'>
 >;
 
-const toProfileUpdatePayload = (values: ProfileFormState): ProfileUpdatePayload =>
-  (Object.entries(values) as Array<[keyof ProfileFormState, string]>).reduce<ProfileUpdatePayload>(
-    (acc, [key, value]) => {
-      const trimmed = value.trim();
-      const fieldKey = key as keyof ProfileUpdatePayload;
-      return {
-        ...acc,
-        [fieldKey]: trimmed.length === 0 ? null : trimmed
-      };
-    },
-    {} as ProfileUpdatePayload
-  );
+const REQUIRED_FIELDS: ReadonlyArray<keyof ProfileFormState> = [
+  'firstName',
+  'lastName',
+  'jobTitle',
+  'phoneNumber',
+  'timezone'
+];
+
+const toProfileUpdatePayload = (values: ProfileFormState): ProfileUpdatePayload => {
+  const payload: ProfileUpdatePayload = {};
+
+  (Object.entries(values) as Array<[keyof ProfileFormState, string]>).forEach(([key, value]) => {
+    const trimmed = value.trim();
+    const fieldKey = key as keyof ProfileUpdatePayload;
+
+    if (REQUIRED_FIELDS.includes(key)) {
+      payload[fieldKey] = trimmed;
+      return;
+    }
+
+    payload[fieldKey] = trimmed.length === 0 ? null : trimmed;
+  });
+
+  return payload;
+};
 
 const formatDateTime = (value: string | null | undefined) => {
   if (!value) {
@@ -133,6 +146,12 @@ const ProfileSettings = () => {
   const handleProfileSubmit = async (event: FormEvent<HTMLFormElement | HTMLDivElement>) => {
     event.preventDefault();
     setProfileError(null);
+
+    const missingFields = REQUIRED_FIELDS.filter((field) => form[field].trim().length === 0);
+    if (missingFields.length > 0) {
+      setProfileError('Please fill out all required profile fields before saving.');
+      return;
+    }
 
     try {
       const payload = toProfileUpdatePayload(form);
@@ -246,30 +265,34 @@ const ProfileSettings = () => {
             </Alert>
           ) : null}
           <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
-            <FormControl>
+            <FormControl isRequired>
               <FormLabel>First name</FormLabel>
               <Input
+                required
                 value={form.firstName}
                 onChange={(event) => setForm((prev) => ({ ...prev, firstName: event.target.value }))}
               />
             </FormControl>
-            <FormControl>
+            <FormControl isRequired>
               <FormLabel>Last name</FormLabel>
               <Input
+                required
                 value={form.lastName}
                 onChange={(event) => setForm((prev) => ({ ...prev, lastName: event.target.value }))}
               />
             </FormControl>
-            <FormControl>
+            <FormControl isRequired>
               <FormLabel>Job title</FormLabel>
               <Input
+                required
                 value={form.jobTitle}
                 onChange={(event) => setForm((prev) => ({ ...prev, jobTitle: event.target.value }))}
               />
             </FormControl>
-            <FormControl>
+            <FormControl isRequired>
               <FormLabel>Phone number</FormLabel>
               <Input
+                required
                 value={form.phoneNumber}
                 onChange={(event) => {
                   const nextValue = formatPhoneNumber(event.target.value);
@@ -277,9 +300,10 @@ const ProfileSettings = () => {
                 }}
               />
             </FormControl>
-            <FormControl>
+            <FormControl isRequired>
               <FormLabel>Timezone</FormLabel>
               <Select
+                required
                 placeholder="Select timezone"
                 value={form.timezone}
                 onChange={(event) => setForm((prev) => ({ ...prev, timezone: event.target.value }))}

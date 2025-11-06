@@ -79,5 +79,5 @@ if (!globalRef.crypto || typeof globalRef.crypto !== 'object') {
   globalRef.crypto = webcrypto;
 } else if (typeof globalRef.crypto.randomUUID !== 'function') {
   const { randomUUID } = require('crypto') as { randomUUID: () => string };
-  globalRef.crypto.randomUUID = randomUUID;
+  globalRef.crypto.randomUUID = randomUUID as unknown as typeof globalRef.crypto.randomUUID;
 }

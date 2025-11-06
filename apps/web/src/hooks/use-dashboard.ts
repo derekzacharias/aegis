@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query';
-import { ProfileCompletenessSummary } from '@compliance/shared';
 import apiClient from '../services/api-client';
 
 export type DashboardOverview = {
@@ -39,7 +38,6 @@ export type DashboardOverview = {
     lastCompletedScanAt: string | null;
     engine: string | null;
   };
-  contact: ProfileCompletenessSummary;
 };
 
 const fallback: DashboardOverview = {
@@ -121,38 +119,6 @@ const fallback: DashboardOverview = {
     averageScanDurationMs: 4120,
     lastCompletedScanAt: new Date().toISOString(),
     engine: 'ClamAV'
-  },
-  contact: {
-    total: 12,
-    complete: 9,
-    incomplete: 3,
-    stale: 2,
-    completenessRate: 75,
-    missingFieldCounts: {
-      firstName: 0,
-      lastName: 0,
-      jobTitle: 2,
-      phoneNumber: 3,
-      timezone: 1
-    },
-    attention: [
-      {
-        id: 'user-12',
-        email: 'auditor@example.com',
-        name: 'Jordan Lee',
-        missingFields: ['phoneNumber', 'jobTitle'],
-        isStale: true,
-        lastUpdated: new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString()
-      },
-      {
-        id: 'user-14',
-        email: 'analyst@example.com',
-        name: 'Taylor Rivers',
-        missingFields: ['phoneNumber'],
-        isStale: false,
-        lastUpdated: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString()
-      }
-    ]
   }
 };
 

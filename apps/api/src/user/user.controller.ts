@@ -4,7 +4,8 @@ import {
   ForcePasswordResetResult,
   UserInviteSummary,
   UserProfile,
-  UserProfileAuditEntry
+  UserProfileAuditEntry,
+  UserRefreshFailure
 } from '@compliance/shared';
 import type { Response } from 'express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -126,6 +127,15 @@ export class UserController {
     @Query() query: ProfileAuditQueryDto
   ): Promise<UserProfileAuditEntry[]> {
     return this.userService.listAuditEntries(user.id, query.limit ?? 20);
+  }
+
+  @Get('refresh-failures')
+  @Roles(UserRole.ADMIN)
+  async listRefreshFailures(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Query() query: ProfileAuditQueryDto
+  ): Promise<UserRefreshFailure[]> {
+    return this.userService.listRefreshFailures(actor, query.limit ?? 20);
   }
 
   @Patch(':userId/role')

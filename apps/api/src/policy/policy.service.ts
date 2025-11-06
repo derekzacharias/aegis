@@ -533,7 +533,7 @@ export class PolicyService {
       throw new BadRequestException('Only draft versions can be edited.');
     }
 
-    const updateData: Prisma.PolicyVersionUpdateInput = {};
+    const updateData: Prisma.PolicyVersionUncheckedUpdateInput = {};
 
     if (dto.label !== undefined) {
       const trimmedLabel = dto.label?.trim() ?? '';
