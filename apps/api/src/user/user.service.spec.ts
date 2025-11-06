@@ -283,4 +283,83 @@ describe('UserService', () => {
       );
     });
   });
+
+  describe('listServiceTokenEvents', () => {
+    const adminActor: AuthenticatedUser = {
+      id: 'admin-1',
+      email: 'admin@example.com',
+      organizationId: 'org-1',
+      role: UserRole.ADMIN
+    };
+
+    it('requires admin privileges', async () => {
+      const analystActor: AuthenticatedUser = {
+        id: 'user-3',
+        email: 'analyst@example.com',
+        organizationId: 'org-1',
+        role: UserRole.ANALYST
+      };
+
+      await expect(service.listServiceTokenEvents(analystActor, 5)).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('returns normalized service token events', async () => {
+      const occurredAt = makeDate();
+      mockPrisma.userProfileAudit.findMany.mockResolvedValueOnce([
+        {
+          id: 'audit-2',
+          userId: 'agent-1',
+          user: {
+            email: 'reports-agent@aegis.local',
+            firstName: 'Reports',
+            lastName: 'Agent'
+          },
+          changes: {
+            serviceToken: {
+              previous: null,
+              current: 'issued',
+              source: 'login',
+              refreshTokenId: 'refresh-123',
+              issuedAt: occurredAt.toISOString()
+            }
+          },
+          createdAt: occurredAt
+        }
+      ]);
+
+      const result = await service.listServiceTokenEvents(adminActor, 5);
+
+      expect(mockPrisma.userProfileAudit.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            user: expect.objectContaining({ organizationId: adminActor.organizationId })
+          }),
+          take: 5
+        })
+      );
+      expect(result).toEqual([
+        {
+          id: 'audit-2',
+          userId: 'agent-1',
+          email: 'reports-agent@aegis.local',
+          name: 'Reports Agent',
+          source: 'login',
+          refreshTokenId: 'refresh-123',
+          issuedAt: occurredAt.toISOString(),
+          occurredAt: occurredAt.toISOString(),
+          isServiceUser: true
+        }
+      ]);
+    });
+
+    it('caps the limit to 100 entries', async () => {
+      mockPrisma.userProfileAudit.findMany.mockResolvedValueOnce([]);
+
+      await service.listServiceTokenEvents(adminActor, 500);
+
+      expect(mockPrisma.userProfileAudit.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ take: 100 })
+      );
+    });
+  });
 });

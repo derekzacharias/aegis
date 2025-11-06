@@ -15,6 +15,9 @@ import {
   Heading,
   HStack,
   Icon,
+  Input,
+  InputGroup,
+  InputLeftElement,
   OrderedList,
   SimpleGrid,
   Stack,
@@ -27,14 +30,16 @@ import {
   Text,
   UnorderedList,
   Wrap,
-  useColorModeValue
+  useColorModeValue,
+  useToast
 } from '@chakra-ui/react';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   FiArrowRight,
   FiBookOpen,
   FiCheckCircle,
   FiClipboard,
+  FiSearch,
   FiDownload,
   FiHelpCircle,
   FiEye,
@@ -53,6 +58,12 @@ import {
 import userGuideMarkdown from '../../../../docs/policies-user-guide.md?raw';
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import adminGuideMarkdown from '../../../../docs/policies-admin-guide.md?raw';
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import assessmentLifecycleMarkdown from '../../../../docs/assessment-lifecycle.md?raw';
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import architectureMarkdown from '../../../../docs/architecture.md?raw';
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import integrationsMarkdown from '../../../../docs/integrations.md?raw';
 
 type GuideSection = {
   title: string;
@@ -71,6 +82,19 @@ type GuideDefinition = {
   markdownFilename: string;
   markdownContent: string;
   sections: GuideSection[];
+};
+
+type KnowledgeArticle = {
+  key: string;
+  title: string;
+  summary: string;
+  icon: typeof FiHelpCircle;
+  accent: string;
+  badges: string[];
+  takeaways: string[];
+  markdownFilename: string;
+  markdownContent: string;
+  docPath: string;
 };
 
 const guides: GuideDefinition[] = [
@@ -269,6 +293,60 @@ const guides: GuideDefinition[] = [
   }
 ];
 
+const knowledgeArticles: KnowledgeArticle[] = [
+  {
+    key: 'assessments',
+    title: 'Assessment Lifecycle',
+    summary:
+      'Plan, draft, review, and close assessments with status transitions, role assignments, and linked evidence.',
+    icon: FiActivity,
+    accent: 'teal.500',
+    badges: ['Assessments', 'Workflow', 'Ownership'],
+    takeaways: [
+      'Covers draft → in-progress → complete lifecycle with review checkpoints.',
+      'Explains how control assignments and owners drive dashboard rollups.',
+      'Details evidence attachment flows plus automated audit logging.'
+    ],
+    markdownFilename: 'assessment-lifecycle.md',
+    markdownContent: assessmentLifecycleMarkdown,
+    docPath: 'docs/assessment-lifecycle.md'
+  },
+  {
+    key: 'evidence-vault',
+    title: 'Evidence Vault Operations',
+    summary:
+      'Understand ingestion, antivirus scanning, retention policies, and reviewer workflows powering the Evidence Vault.',
+    icon: FiShield,
+    accent: 'blue.500',
+    badges: ['Evidence', 'Automation', 'Retention'],
+    takeaways: [
+      'Describes storage layout, ClamAV processing, and quarantine auto-release.',
+      'Outlines reviewer responsibilities, retention metadata, and timeline logging.',
+      'Highlights how evidence links feed assessment completeness metrics.'
+    ],
+    markdownFilename: 'architecture.md',
+    markdownContent: architectureMarkdown,
+    docPath: 'docs/architecture.md#evidence-vault'
+  },
+  {
+    key: 'integrations',
+    title: 'Integration & Webhook Catalogue',
+    summary:
+      'Deploy Jira, ServiceNow, and upcoming GitHub integrations with secure credential management and telemetry.',
+    icon: FiZap,
+    accent: 'orange.500',
+    badges: ['Integrations', 'Automation', 'Telemetry'],
+    takeaways: [
+      'Details OAuth setup, mapping configuration, and webhook signature validation.',
+      'Covers retry semantics, notification hooks, and health monitoring expectations.',
+      'Previews roadmap items for GitHub Issues and change management connectors.'
+    ],
+    markdownFilename: 'integrations.md',
+    markdownContent: integrationsMarkdown,
+    docPath: 'docs/integrations.md'
+  }
+];
+
 const quickHighlights = [
   {
     title: 'Audience',
@@ -460,12 +538,148 @@ const DocumentationPage = () => {
     'linear(to-r, brand.500, purple.500)',
     'linear(to-r, brand.400, purple.400)'
   );
-  const heroBorder = useColorModeValue('brand.600', 'purple.300');
+  const heroBorder = useColorModeValue('brand.500', 'purple.300');
+  const heroTagBg = useColorModeValue('whiteAlpha.700', 'whiteAlpha.200');
+  const heroTagColor = useColorModeValue('brand.700', 'white');
+  const heroSearchBg = useColorModeValue('white', 'whiteAlpha.200');
+  const heroSearchTextColor = useColorModeValue('gray.800', 'white');
+  const heroSearchPlaceholder = useColorModeValue('gray.500', 'whiteAlpha.600');
+  const heroSearchIconColor = useColorModeValue('brand.500', 'whiteAlpha.700');
+  const heroSearchBorder = useColorModeValue('white', 'whiteAlpha.400');
+  const heroSearchFocusBorder = useColorModeValue('brand.500', 'white');
+  const heroSearchFocusShadow = useColorModeValue(
+    '0 0 0 1px rgba(59,130,246,0.45)',
+    '0 0 0 1px rgba(255,255,255,0.6)'
+  );
+  const heroMetaTextColor = useColorModeValue('whiteAlpha.900', 'whiteAlpha.800');
+  const heroPrimaryButtonBg = useColorModeValue('white', 'white');
+  const heroPrimaryButtonColor = useColorModeValue('brand.600', 'brand.600');
+  const heroPrimaryButtonHover = useColorModeValue(
+    { bg: 'brand.50' },
+    { bg: 'whiteAlpha.900' }
+  );
+  const heroSecondaryButtonBg = useColorModeValue('brand.50', 'whiteAlpha.200');
+  const heroSecondaryButtonColor = useColorModeValue('brand.700', 'white');
+  const heroSecondaryButtonHover = useColorModeValue(
+    { bg: 'brand.100' },
+    { bg: 'whiteAlpha.300' }
+  );
+  const heroDownloadBorder = useColorModeValue('brand.200', 'whiteAlpha.600');
+  const heroDownloadColor = useColorModeValue('brand.700', 'white');
+  const heroDownloadHover = useColorModeValue(
+    { bg: 'brand.50' },
+    { bg: 'whiteAlpha.200' }
+  );
 
+  const toast = useToast();
   const guideCards = useMemo(() => guides, []);
+  const knowledgeCards = useMemo(() => knowledgeArticles, []);
+  const [searchTerm, setSearchTerm] = useState('');
+  const normalizedQuery = searchTerm.trim().toLowerCase();
   const [tabIndex, setTabIndex] = useState(0);
   const contentRef = useRef<HTMLDivElement | null>(null);
-  const activeGuide = guideCards[tabIndex];
+  const guideSearchResults = useMemo(() => {
+    if (!normalizedQuery) {
+      return [];
+    }
+
+    return guideCards
+      .map((guide, index) => ({ guide, index }))
+      .filter(({ guide }) => {
+        const haystack = [
+          guide.title,
+          guide.subtitle,
+          guide.badges.join(' ')
+        ]
+          .filter(Boolean)
+          .map((entry) => entry.toLowerCase());
+
+        if (haystack.some((entry) => entry.includes(normalizedQuery))) {
+          return true;
+        }
+
+        return guide.sections.some((section) => {
+          if (section.title.toLowerCase().includes(normalizedQuery)) {
+            return true;
+          }
+          return section.items.some((item) => item.toLowerCase().includes(normalizedQuery));
+        });
+      });
+  }, [guideCards, normalizedQuery]);
+
+  const matchedGuideKeys = useMemo(() => {
+    if (!normalizedQuery) {
+      return new Set(guideCards.map((guide) => guide.key));
+    }
+    return new Set(guideSearchResults.map((result) => result.guide.key));
+  }, [guideCards, guideSearchResults, normalizedQuery]);
+
+  const filteredKnowledge = useMemo(() => {
+    if (!normalizedQuery) {
+      return knowledgeCards;
+    }
+    return knowledgeCards.filter((article) => {
+      const terms = [
+        article.title,
+        article.summary,
+        article.docPath,
+        ...article.badges,
+        ...article.takeaways
+      ]
+        .filter(Boolean)
+        .map((entry) => entry.toLowerCase());
+
+      return terms.some((entry) => entry.includes(normalizedQuery));
+    });
+  }, [knowledgeCards, normalizedQuery]);
+
+  useEffect(() => {
+    if (!normalizedQuery || guideSearchResults.length === 0) {
+      return;
+    }
+    const matchingIndices = guideSearchResults.map((result) => result.index);
+    if (!matchingIndices.includes(tabIndex)) {
+      setTabIndex(matchingIndices[0]);
+    }
+  }, [guideSearchResults, normalizedQuery, tabIndex]);
+
+  const activeGuide = guideCards[tabIndex] ?? guideCards[0];
+  const noKnowledgeMatches = normalizedQuery !== '' && filteredKnowledge.length === 0;
+  const noGuideMatches = normalizedQuery !== '' && matchedGuideKeys.size === 0;
+  const userGuideMatch = matchedGuideKeys.has('user');
+  const adminGuideMatch = matchedGuideKeys.has('admin');
+
+  const handleCopyDocPath = (path: string) => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(path)
+        .then(() => {
+          toast({
+            title: 'Document path copied',
+            description: path,
+            status: 'success',
+            duration: 2000,
+            isClosable: true
+          });
+        })
+        .catch(() => {
+          toast({
+            title: 'Unable to copy path',
+            status: 'error',
+            duration: 2000,
+            isClosable: true
+          });
+        });
+    } else {
+      toast({
+        title: 'Clipboard unavailable',
+        description: path,
+        status: 'error',
+        duration: 2000,
+        isClosable: true
+      });
+    }
+  };
 
   const handleJumpToGuide = (index: number) => {
     setTabIndex(index);
@@ -508,31 +722,58 @@ const DocumentationPage = () => {
             </Stack>
           </HStack>
           <Wrap spacing={3}>
-            <Tag bg="whiteAlpha.200" color="white" borderRadius="full" px={4} py={1}>
+            <Tag bg={heroTagBg} color={heroTagColor} borderRadius="full" px={4} py={1}>
               Policy Authors
             </Tag>
-            <Tag bg="whiteAlpha.200" color="white" borderRadius="full" px={4} py={1}>
+            <Tag bg={heroTagBg} color={heroTagColor} borderRadius="full" px={4} py={1}>
               Approvers & Admins
             </Tag>
-            <Tag bg="whiteAlpha.200" color="white" borderRadius="full" px={4} py={1}>
+            <Tag bg={heroTagBg} color={heroTagColor} borderRadius="full" px={4} py={1}>
               Audit Readiness
             </Tag>
           </Wrap>
+          <InputGroup maxW={{ base: '100%', md: '420px' }}>
+            <InputLeftElement pointerEvents="none">
+              <Icon as={FiSearch} color={heroSearchIconColor} boxSize={4} />
+            </InputLeftElement>
+            <Input
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Search policies, assessments, evidence..."
+              bg={heroSearchBg}
+              borderColor={heroSearchBorder}
+              color={heroSearchTextColor}
+              _placeholder={{ color: heroSearchPlaceholder }}
+              _hover={{ borderColor: heroSearchFocusBorder }}
+              _focusVisible={{ borderColor: heroSearchFocusBorder, boxShadow: heroSearchFocusShadow }}
+            />
+          </InputGroup>
+          {normalizedQuery ? (
+            <Text color={heroMetaTextColor} fontSize="sm">
+              {noGuideMatches ? 'No guide matches' : `${matchedGuideKeys.size} guide${matchedGuideKeys.size === 1 ? '' : 's'} match`}{' '}
+              ·{' '}
+              {noKnowledgeMatches
+                ? '0 playbooks match'
+                : `${filteredKnowledge.length} playbook${filteredKnowledge.length === 1 ? '' : 's'} match`}
+            </Text>
+          ) : null}
           <ButtonGroup size="sm" variant="solid">
             <Button
               leftIcon={<FiEye />}
-              bg="white"
-              color="brand.600"
-              _hover={{ bg: 'whiteAlpha.900' }}
+              bg={heroPrimaryButtonBg}
+              color={heroPrimaryButtonColor}
+              _hover={heroPrimaryButtonHover}
+              isDisabled={normalizedQuery !== '' && !userGuideMatch}
               onClick={() => handleJumpToGuide(0)}
             >
               Open User Guide
             </Button>
             <Button
               leftIcon={<FiEye />}
-              bg="whiteAlpha.200"
-              color="white"
-              _hover={{ bg: 'whiteAlpha.300' }}
+              bg={heroSecondaryButtonBg}
+              color={heroSecondaryButtonColor}
+              _hover={heroSecondaryButtonHover}
+              isDisabled={normalizedQuery !== '' && !adminGuideMatch}
               onClick={() => handleJumpToGuide(1)}
             >
               Open Admin Guide
@@ -540,9 +781,9 @@ const DocumentationPage = () => {
             <Button
               leftIcon={<FiDownload />}
               variant="outline"
-              borderColor="whiteAlpha.600"
-              color="white"
-              _hover={{ bg: 'whiteAlpha.200' }}
+              borderColor={heroDownloadBorder}
+              color={heroDownloadColor}
+              _hover={heroDownloadHover}
               onClick={() =>
                 downloadGuide(guideCards[tabIndex].markdownFilename, guideCards[tabIndex].markdownContent)
               }
@@ -587,6 +828,93 @@ const DocumentationPage = () => {
           </Card>
         ))}
       </SimpleGrid>
+
+      <Stack spacing={3} align="start">
+        <Heading size="md">Product Playbooks</Heading>
+        <Text color={tileSubtitleColor} maxW="760px">
+          Deep dives for assessments, evidence operations, and integrations. Use the search bar to
+          filter playbooks and export Markdown for runbooks or onboarding.
+        </Text>
+      </Stack>
+      {noKnowledgeMatches ? (
+        <Card borderWidth="1px" borderColor={tileBorder} bg={tileBg} borderRadius="xl" p={6} boxShadow="sm">
+          <Text color={tileSubtitleColor}>
+            No product playbooks match your search yet. Try a different keyword or clear the filter to
+            browse all available guides.
+          </Text>
+        </Card>
+      ) : (
+        <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={6}>
+          {filteredKnowledge.map((article) => (
+            <Card
+              key={article.key}
+              borderWidth="1px"
+              borderColor={tileBorder}
+              bg={tileBg}
+              borderRadius="xl"
+              boxShadow="sm"
+              height="100%"
+            >
+              <CardHeader pb={3}>
+                <Stack spacing={2}>
+                  <HStack spacing={3} align="flex-start">
+                    <Box
+                      borderRadius="full"
+                      bg={`${article.accent}1A`}
+                      color={article.accent}
+                      boxSize={10}
+                      display="flex"
+                      alignItems="center"
+                      justifyContent="center"
+                    >
+                      <Icon as={article.icon} boxSize={5} />
+                    </Box>
+                    <Stack spacing={1}>
+                      <Heading size="sm">{article.title}</Heading>
+                      <Text color={tileSubtitleColor} fontSize="sm">
+                        {article.summary}
+                      </Text>
+                    </Stack>
+                  </HStack>
+                  <Wrap spacing={2}>
+                    {article.badges.map((badge) => (
+                      <Tag key={`${article.key}-${badge}`} variant="subtle" colorScheme="gray" size="sm">
+                        {badge}
+                      </Tag>
+                    ))}
+                  </Wrap>
+                </Stack>
+              </CardHeader>
+              <CardBody pt={0}>
+                <UnorderedList spacing={2} color={tileTextColor} fontSize="sm" pl={5}>
+                  {article.takeaways.map((item) => (
+                    <li key={item}>
+                      <Text>{item}</Text>
+                    </li>
+                  ))}
+                </UnorderedList>
+                <Text color={tileSubtitleColor} fontSize="xs" mt={3}>
+                  Source: <code>{article.docPath}</code>
+                </Text>
+              </CardBody>
+              <CardFooter pt={0}>
+                <ButtonGroup size="sm" spacing={3}>
+                  <Button
+                    leftIcon={<FiDownload />}
+                    variant="outline"
+                    onClick={() => downloadGuide(article.markdownFilename, article.markdownContent)}
+                  >
+                    Download Markdown
+                  </Button>
+                  <Button leftIcon={<FiClipboard />} variant="ghost" onClick={() => handleCopyDocPath(article.docPath)}>
+                    Copy Path
+                  </Button>
+                </ButtonGroup>
+              </CardFooter>
+            </Card>
+          ))}
+        </SimpleGrid>
+      )}
 
       <Stack spacing={3} align="start">
         <Heading size="md">Current Platform Capabilities</Heading>
@@ -675,6 +1003,7 @@ const DocumentationPage = () => {
       <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={6}>
         {guideCards.map((guide, index) => {
           const isActive = tabIndex === index;
+          const isMatched = normalizedQuery === '' || matchedGuideKeys.has(guide.key);
 
           return (
             <Card
@@ -685,6 +1014,8 @@ const DocumentationPage = () => {
               borderRadius="xl"
               height="100%"
               boxShadow={isActive ? 'md' : 'sm'}
+              opacity={isMatched ? 1 : 0.35}
+              pointerEvents={isMatched ? 'auto' : 'none'}
               transition="transform 0.2s ease, box-shadow 0.2s ease"
               _hover={{ transform: 'translateY(-4px)', boxShadow: 'lg' }}
             >
@@ -886,7 +1217,11 @@ const DocumentationPage = () => {
             >
               <TabList>
                 {guideCards.map((guide) => (
-                  <Tab key={guide.key} fontWeight="semibold">
+                  <Tab
+                    key={guide.key}
+                    fontWeight="semibold"
+                    isDisabled={normalizedQuery !== '' && !matchedGuideKeys.has(guide.key)}
+                  >
                     {guide.title}
                   </Tab>
                 ))}

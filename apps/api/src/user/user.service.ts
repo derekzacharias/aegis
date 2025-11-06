@@ -14,7 +14,8 @@ import {
   UserInviteSummary,
   UserProfile,
   UserProfileAuditEntry,
-  UserRefreshFailure
+  UserRefreshFailure,
+  UserServiceTokenEvent
 } from '@compliance/shared';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -779,6 +780,81 @@ export class UserService {
         metadata,
         occurredAt: audit.createdAt.toISOString(),
         isServiceUser: email.toLowerCase().includes('-agent@')
+      };
+    });
+  }
+
+  async listServiceTokenEvents(
+    actor: AuthenticatedUser,
+    take = 20
+  ): Promise<UserServiceTokenEvent[]> {
+    this.ensureAdmin(actor);
+
+    const limit = Math.min(Math.max(take, 1), 100);
+
+    const audits = await this.prisma.userProfileAudit.findMany({
+      where: {
+        user: {
+          organizationId: actor.organizationId
+        },
+        changes: {
+          path: ['serviceToken', 'current'],
+          equals: 'issued'
+        }
+      },
+      include: {
+        user: {
+          select: {
+            email: true,
+            firstName: true,
+            lastName: true
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit
+    });
+
+    return audits.map((audit) => {
+      const user =
+        (
+          audit as unknown as {
+            user?: { email: string; firstName: string | null; lastName: string | null };
+          }
+        ).user ?? null;
+      const changes = (audit.changes ?? {}) as Record<string, unknown>;
+      const tokenDetails =
+        changes &&
+        typeof changes === 'object' &&
+        !Array.isArray(changes) &&
+        'serviceToken' in changes &&
+        changes.serviceToken
+          ? (changes.serviceToken as Record<string, unknown>)
+          : {};
+      const sourceValue = tokenDetails['source'];
+      const refreshTokenIdValue = tokenDetails['refreshTokenId'];
+      const issuedAtValue = tokenDetails['issuedAt'];
+
+      const email = user?.email ?? 'unknown';
+      const fullName = user
+        ? [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email
+        : null;
+
+      const isServiceUser = email.toLowerCase().includes('-agent@');
+
+      return {
+        id: audit.id,
+        userId: audit.userId,
+        email,
+        name: fullName,
+        source: typeof sourceValue === 'string' ? sourceValue : null,
+        refreshTokenId: typeof refreshTokenIdValue === 'string' ? refreshTokenIdValue : null,
+        issuedAt:
+          typeof issuedAtValue === 'string'
+            ? new Date(issuedAtValue).toISOString()
+            : null,
+        occurredAt: audit.createdAt.toISOString(),
+        isServiceUser
       };
     });
   }

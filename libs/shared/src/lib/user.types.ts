@@ -26,6 +26,18 @@ export interface UserRefreshFailure {
   isServiceUser: boolean;
 }
 
+export interface UserServiceTokenEvent {
+  id: string;
+  userId: string;
+  email: string;
+  name: string | null;
+  source: string | null;
+  refreshTokenId: string | null;
+  issuedAt: string | null;
+  occurredAt: string;
+  isServiceUser: boolean;
+}
+
 export interface CreateUserInviteInput {
   email: string;
   role: UserRole;

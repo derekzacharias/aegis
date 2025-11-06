@@ -76,6 +76,7 @@ import {
 import {
   useDeleteEvidence,
   useEvidence,
+  useEvidenceReleaseHistory,
   useEvidenceUpload,
   useUpdateEvidenceLinks,
   useUpdateEvidenceMetadata,
@@ -163,6 +164,12 @@ const EvidencePage = () => {
   const metadataModal = useDisclosure();
 
   const { data: evidence = [] } = useEvidence();
+  const {
+    data: releaseHistory = [],
+    isLoading: isReleaseHistoryLoading,
+    isFetching: isReleaseHistoryFetching,
+    error: releaseHistoryError
+  } = useEvidenceReleaseHistory(true, 12);
   const { data: frameworks = [] } = useFrameworks();
   const { data: assessments = [] } = useAssessments();
 
@@ -683,6 +690,78 @@ const EvidencePage = () => {
           <StatHelpText>Ready for audit</StatHelpText>
         </Stat>
       </SimpleGrid>
+
+      <Box
+        bg={cardBg}
+        borderRadius="lg"
+        borderWidth="1px"
+        borderColor={cardBorder}
+        p={4}
+      >
+        <HStack justify="space-between" align="flex-start" mb={3}>
+          <Box>
+            <Heading size="sm" mb={1}>
+              Recent Releases
+            </Heading>
+            <Text fontSize="sm" color="gray.500">
+              Automatic and manual releases from quarantine.
+            </Text>
+          </Box>
+          {isReleaseHistoryFetching ? <Spinner size="sm" /> : null}
+        </HStack>
+        {isReleaseHistoryLoading ? (
+          <Box display="flex" justifyContent="center" py={4}>
+            <Spinner />
+          </Box>
+        ) : releaseHistoryError ? (
+          <Text color="red.500" fontSize="sm">
+            Unable to load release history.
+          </Text>
+        ) : releaseHistory.length === 0 ? (
+          <Text color="gray.500" fontSize="sm">
+            No release activity recorded yet.
+          </Text>
+        ) : (
+          <Stack spacing={4}>
+            {releaseHistory.map((event) => {
+              const statusMetaEntry = getStatusBadgeMeta(event.releasedTo);
+              const actorLabel = event.changedBy?.name ?? event.changedBy?.email ?? 'System automation';
+              const description =
+                event.note?.trim() ||
+                `Evidence released to ${statusMetaEntry.label.toLowerCase()}.`;
+              return (
+                <Box key={event.id}>
+                  <HStack spacing={2} align="center" flexWrap="wrap">
+                    <Text fontWeight="semibold">{event.evidenceName}</Text>
+                    <Badge colorScheme={statusMetaEntry.color} fontSize="0.65rem">
+                      {statusMetaEntry.label}
+                    </Badge>
+                    {event.isAutomatic ? (
+                      <Badge colorScheme="purple" fontSize="0.65rem">
+                        Automatic
+                      </Badge>
+                    ) : null}
+                    <Text fontSize="xs" color="gray.500">
+                      {formatHistoryTimestamp(event.changedAt)}
+                    </Text>
+                  </HStack>
+                  {event.evidenceFilename ? (
+                    <Text fontSize="xs" color="gray.500">
+                      {event.evidenceFilename}
+                    </Text>
+                  ) : null}
+                  <Text fontSize="sm" color="gray.600" mt={1}>
+                    {description}
+                  </Text>
+                  <Text fontSize="xs" color="gray.500">
+                    {actorLabel}
+                  </Text>
+                </Box>
+              );
+            })}
+          </Stack>
+        )}
+      </Box>
 
       <Stack
         direction={{ base: 'column', md: 'row' }}

@@ -15,10 +15,12 @@ dependencies = [
   "langchain-openai>=0.1.8",
   "requests>=2.31.0",
   "python-dotenv>=1.0.0",
+  "stix2>=3.0.1",
 ]
 
 [project.scripts]
 iac-policy-guard-agent = "aegis_mcp_agents.iac_policy_guard:main"
+aws-posture-scan-agent = "aegis_mcp_agents.aws_posture_scan:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

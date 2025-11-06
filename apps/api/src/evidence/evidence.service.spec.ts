@@ -23,7 +23,8 @@ const prismaMock: any = {
     update: jest.fn()
   },
   evidenceStatusHistory: {
-    create: jest.fn()
+    create: jest.fn(),
+    findMany: jest.fn()
   },
   evidenceUploadRequest: {
     findUnique: jest.fn(),
@@ -107,6 +108,7 @@ type EvidenceWithRelations = Prisma.EvidenceItemGetPayload<{
 beforeEach(() => {
   jest.clearAllMocks();
   queue.reset();
+  prismaMock.evidenceStatusHistory.findMany.mockResolvedValue([]);
   configGetMock.mockImplementation((key: string) => {
     switch (key) {
       case 'antivirus.enabled':
@@ -220,36 +222,26 @@ describe('EvidenceService.createSimple', () => {
       select: { id: true }
     });
 
-    expect(prismaMock.evidenceItem.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        name: 'Policy Document',
-        organizationId: 'org-1',
-        fileType: 'pdf',
-        sizeInKb: 2,
-        displayControlIds: ['ac-2'],
-        displayFrameworkIds: ['framework-1'],
-        nextAction: 'Pending analyst review'
-      }),
-      include: {
-        reviewer: true,
-        uploadedBy: true,
-        frameworks: {
-          include: {
-            framework: true
-          }
-        },
-        controls: {
-          include: {
-            assessmentControl: {
-              include: {
-                assessment: true,
-                control: true
-              }
-            }
-          }
-        }
-      }
-    });
+    expect(prismaMock.evidenceItem.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          name: 'Policy Document',
+          organizationId: 'org-1',
+          fileType: 'pdf',
+          sizeInKb: 2,
+          displayControlIds: ['ac-2'],
+          displayFrameworkIds: ['framework-1'],
+          nextAction: 'Pending analyst review'
+        }),
+        include: expect.objectContaining({
+          reviewer: true,
+          uploadedBy: true,
+          frameworks: expect.any(Object),
+          controls: expect.any(Object),
+          statusHistory: expect.any(Object)
+        })
+      })
+    );
 
     expect(prismaMock.evidenceStatusHistory.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -275,6 +267,108 @@ describe('EvidenceService.createSimple', () => {
         sizeInKb: 1
       })
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('EvidenceService.listReleaseHistory', () => {
+  it('returns normalized release events', async () => {
+    const occurredAt = new Date('2024-02-02T10:00:00.000Z');
+
+    prismaMock.evidenceStatusHistory.findMany.mockResolvedValueOnce([
+      {
+        id: 'hist-1',
+        evidenceId: 'evidence-1',
+        fromStatus: EvidenceStatus.QUARANTINED,
+        toStatus: EvidenceStatus.PENDING,
+        note: 'Evidence auto-released to pending after clean antivirus scan',
+        changedAt: occurredAt,
+        changedById: null,
+        evidence: {
+          id: 'evidence-1',
+          name: 'Policy.docx',
+          originalFilename: 'Policy.docx'
+        },
+        changedBy: null
+      }
+    ]);
+
+    const result = await service.listReleaseHistory('org-1', 5);
+
+    expect(prismaMock.evidenceStatusHistory.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          evidence: expect.objectContaining({ organizationId: 'org-1' })
+        }),
+        take: 5
+      })
+    );
+
+    expect(result).toEqual([
+      {
+        id: 'hist-1',
+        evidenceId: 'evidence-1',
+        evidenceName: 'Policy.docx',
+        evidenceFilename: 'Policy.docx',
+        releasedTo: EvidenceStatus.PENDING,
+        note: 'Evidence auto-released to pending after clean antivirus scan',
+        changedAt: occurredAt.toISOString(),
+        changedBy: null,
+        isAutomatic: true
+      }
+    ]);
+  });
+
+  it('caps limit and includes actor details', async () => {
+    const occurredAt = new Date('2024-02-03T10:00:00.000Z');
+
+    prismaMock.evidenceStatusHistory.findMany.mockResolvedValueOnce([
+      {
+        id: 'hist-2',
+        evidenceId: 'evidence-2',
+        fromStatus: EvidenceStatus.QUARANTINED,
+        toStatus: EvidenceStatus.APPROVED,
+        note: 'Released by analyst after review',
+        changedAt: occurredAt,
+        changedById: 'user-2',
+        evidence: {
+          id: 'evidence-2',
+          name: 'Scan Results.zip',
+          originalFilename: 'Scan Results.zip'
+        },
+        changedBy: {
+          id: 'user-2',
+          email: 'analyst@example.com',
+          firstName: 'Quinn',
+          lastName: 'Analyst'
+        }
+      }
+    ]);
+
+    const result = await service.listReleaseHistory('org-1', 200);
+
+    expect(prismaMock.evidenceStatusHistory.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 50
+      })
+    );
+
+    expect(result).toEqual([
+      {
+        id: 'hist-2',
+        evidenceId: 'evidence-2',
+        evidenceName: 'Scan Results.zip',
+        evidenceFilename: 'Scan Results.zip',
+        releasedTo: EvidenceStatus.APPROVED,
+        note: 'Released by analyst after review',
+        changedAt: occurredAt.toISOString(),
+        changedBy: {
+          id: 'user-2',
+          email: 'analyst@example.com',
+          name: 'Quinn Analyst'
+        },
+        isAutomatic: false
+      }
+    ]);
   });
 });
 

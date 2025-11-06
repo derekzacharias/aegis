@@ -203,7 +203,9 @@ function createPrismaMock() {
         }: {
           data: Prisma.IntegrationConnectionCreateInput;
         }) => {
-          const organizationId = (data as { organizationId?: string }).organizationId;
+          const organizationId =
+            (data as { organizationId?: string }).organizationId ??
+            (data as { organization?: { connect?: { id?: string } } }).organization?.connect?.id;
           if (!organizationId) {
             throw new Error('organizationId is required');
           }

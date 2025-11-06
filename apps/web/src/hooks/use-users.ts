@@ -6,6 +6,7 @@ import {
   UserInviteSummary,
   UserProfile,
   UserRefreshFailure,
+  UserServiceTokenEvent,
   UserRole
 } from '@compliance/shared';
 import apiClient from '../services/api-client';
@@ -47,6 +48,19 @@ export const useRefreshFailures = (enabled = true, limit = 20) =>
     queryKey: ['users', 'refresh-failures', limit],
     queryFn: async () => {
       const { data } = await apiClient.get<UserRefreshFailure[]>('/users/refresh-failures', {
+        params: { limit }
+      });
+      return data;
+    },
+    enabled,
+    placeholderData: []
+  });
+
+export const useServiceTokenEvents = (enabled = true, limit = 20) =>
+  useQuery({
+    queryKey: ['users', 'service-token-events', limit],
+    queryFn: async () => {
+      const { data } = await apiClient.get<UserServiceTokenEvent[]>('/users/service-token-events', {
         params: { limit }
       });
       return data;

@@ -46,3 +46,19 @@ jobs:
         env:
           DATABASE_URL: postgresql://aegis_dev:AegisDevPass123!@localhost:5432/aegis_dev
         run: npm run test:db-smoke
+
+      - name: Capture Postgres logs
+        if: always()
+        run: |
+          mkdir -p logs/prisma-smoke/latest
+          docker logs ${{ job.services.postgres.id }} > logs/prisma-smoke/latest/postgres.log || true
+
+      - name: Upload Prisma logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prisma-smoke-logs
+          if-no-files-found: warn
+          path: |
+            logs/prisma-smoke/latest/*.log
+            logs/prisma-smoke/latest/metadata.json

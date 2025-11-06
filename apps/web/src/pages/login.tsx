@@ -7,6 +7,7 @@ import {
   FormControl,
   FormLabel,
   Heading,
+  Icon,
   Input,
   Stack,
   Text,
@@ -16,7 +17,9 @@ import {
 import axios from 'axios';
 import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import AegisMark from '../components/aegis-mark';
 import useAuth from '../hooks/use-auth';
+import { FiShield } from 'react-icons/fi';
 
 const LoginPage = () => {
   const { login, isAuthenticated, isLoading } = useAuth();
@@ -81,6 +84,8 @@ const LoginPage = () => {
       >
         <Stack spacing={6}>
           <Stack spacing={2} textAlign="center">
+            <AegisMark boxSize={12} mx="auto" />
+            <Icon as={FiShield} boxSize={10} color="brand.500" mx="auto" />
             <Heading size="lg">Sign in to Aegis</Heading>
             <Text color="gray.500">Access your compliance control center</Text>
           </Stack>

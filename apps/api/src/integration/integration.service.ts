@@ -371,7 +371,11 @@ export class IntegrationService {
   ): Prisma.IntegrationConnectionCreateInput {
     const mapping = this.buildDefaultMapping(provider);
     return {
-      organizationId,
+      organization: {
+        connect: {
+          id: organizationId
+        }
+      },
       provider,
       clientId: 'demo-client-id',
       clientSecret: 'demo-client-secret',
