@@ -12,6 +12,147 @@ main {
   padding: 2rem;
 }
 
+.documentation-page {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+  color: #0f172a;
+}
+
+.documentation-hero {
+  background: linear-gradient(135deg, #1d4ed8, #312e81 55%, #0f172a);
+  border-radius: 24px;
+  padding: 2.5rem;
+  color: white;
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  box-shadow: 0 25px 60px rgba(15, 23, 42, 0.25);
+}
+
+.documentation-hero .hero-content h2 {
+  font-size: 2.25rem;
+  margin-bottom: 1rem;
+}
+
+.hero-eyebrow {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: rgba(226, 232, 240, 0.75);
+  margin-bottom: 0.75rem;
+}
+
+.documentation-hero p {
+  color: rgba(241, 245, 249, 0.9);
+  max-width: 520px;
+}
+
+.hero-actions {
+  margin-top: 1.5rem;
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.primary-action,
+.secondary-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.65rem 1.5rem;
+  border-radius: 999px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.primary-action {
+  background: white;
+  color: #1d4ed8;
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.3);
+}
+
+.secondary-action {
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  color: rgba(226, 232, 240, 0.9);
+}
+
+.primary-action:hover,
+.secondary-action:hover {
+  transform: translateY(-2px);
+}
+
+.hero-highlights {
+  display: grid;
+  gap: 1rem;
+}
+
+.hero-highlights article {
+  background: rgba(15, 23, 42, 0.45);
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.2);
+}
+
+.hero-highlights h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.15rem;
+}
+
+.documentation-content {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.documentation-content article {
+  background: white;
+  border-radius: 18px;
+  padding: 1.75rem;
+  box-shadow: 0 15px 35px rgba(15, 23, 42, 0.12);
+  border: 1px solid rgba(226, 232, 240, 0.7);
+}
+
+.documentation-content h3 {
+  margin-top: 0;
+}
+
+.documentation-content ul {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: #475569;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.documentation-footer {
+  background: white;
+  border-radius: 18px;
+  padding: 2rem;
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  align-items: start;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.1);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+}
+
+.documentation-footer nav {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.documentation-footer a {
+  color: #1d4ed8;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.documentation-footer a:hover {
+  text-decoration: underline;
+}
+
 h1,
  h2 {
   margin: 0 0 1rem;
