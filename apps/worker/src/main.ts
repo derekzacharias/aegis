@@ -5,6 +5,8 @@ import { WorkerModule } from './worker.module';
 import { ReportingProcessor } from './workers/reporting.processor';
 import { IntegrationProcessor } from './workers/integration.processor';
 import { EvidenceProcessor } from './workers/evidence.processor';
+import { FrameworkProcessor } from './workers/framework.processor';
+import { FrameworkPublishReporter } from './workers/framework.publish.reporter';
 import { ScheduleRunner } from './scheduler/schedule-runner';
 
 async function bootstrap() {
@@ -15,6 +17,8 @@ async function bootstrap() {
   app.get(ReportingProcessor);
   app.get(IntegrationProcessor);
   app.get(EvidenceProcessor);
+  app.get(FrameworkProcessor);
+  app.get(FrameworkPublishReporter);
   await app.get(ScheduleRunner).initialize();
   const queueName = config.get<string>('WORK_QUEUE_NAME') ?? 'compliance-jobs';
   Logger.log(`🛠️ Worker ready for queue "${queueName}"`);

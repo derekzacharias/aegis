@@ -104,8 +104,8 @@ Our immediate goal is to mature Aegis into a framework-agnostic GRC platform tha
 7. **Assessment Lifecycle Hardening** – ✅ Replace in-memory stores with Prisma persistence, expose full CRUD (status transitions, owner updates, control/task linkage), add audit logging, and ship frontend workspace tooling. _Next: add granular progress caching for large assessments and bulk status update APIs for control groups._
 8. **Service User Playbooks** – ✅ Documented provisioning and RBAC guidance, added structured refresh-failure audits/metrics, and published `/users/profile` monitoring notes so operators can trace agent activity end-to-end.
 9. **User Provisioning Workflow** – ✅ Extended the Settings › Users experience with invitation flows, forced password resets, bulk role management, and CSV exports for FedRAMP audit packages. _Next: surface invitation acceptance telemetry in the admin dashboard and wire email delivery to tenant-configurable providers._
-10. **Profile & Notification Sync** – ✅ Settings → Profile now surfaces `UserProfileAudit` history, admin role controls, timezone/phone helpers, lazy audit loading, and worker notifications now hydrate payloads with enriched profile metadata plus alerting for stale or incomplete contact details. _Next: surface contact completeness metrics in the ops dashboard and automate reminders for profiles missing critical fields._
-11. **Custom Framework Publish Hooks** – Trigger worker jobs when drafts are published (kick off crosswalk regeneration, warm control catalog caches, notify report queue), add integration tests, and capture retry logic for failed background runs.
+10. **Profile & Notification Sync** – ✅ Settings → Profile now surfaces `UserProfileAudit` history, admin role controls, timezone/phone helpers, lazy audit loading, and worker notifications now hydrate payloads with enriched profile metadata plus alerting for stale or incomplete contact details. ✅ Ops dashboard presents contact completeness metrics with attention lists, and a scheduled worker now sends reminders to users with missing or stale contact fields. _Next: trend completeness over time, expose reminder delivery telemetry in the ops dashboard, and add tenant controls for reminder cadence._
+11. **Custom Framework Publish Hooks** – ✅ Publishing a framework now enqueues a worker warmup job that refreshes crosswalk suggestions, precomputes control catalog facets, writes cache snapshots, and retries up to three times with metrics/logging. ✅ A follow-on reporter processor fans out `report.generate` jobs for complete assessments referencing the framework, with retry/backoff and telemetry. _Next: surface warmup/report status in the admin UI and extend caching to target-specific crosswalk filters._
 12. **Agent-driven Framework Imports** – Expose CLI/script examples for seeding frameworks via the new API (CSV/JSON payloads), add smoke tests, and enforce metadata/ownership validation before publish.
 13. **Automated Assessment Methodology** – Define how automated compliance assessments will execute across customer-selected frameworks by comparing resident agents versus SSH-mediated runs, spiking orchestrations with tools like Ansible and Chef InSpec, and capturing decision criteria (coverage depth, rollout complexity, operational risk). Deliverables include a recommendation doc, early proof-of-concept jobs, and integration guidance for the selected method.
 14. **CIS Benchmark Agent Packaging** – Deliver the CIS Benchmark agent as a downloadable artifact (script or container) with published checksums, and connect the existing UI toggle to API flows that serve the artifact metadata, enforce role-based access, and track download attempts for auditability. _Next: document deployment prerequisites, add smoke tests for checksum validation, and wire automated publishing into the release pipeline._
@@ -132,3 +132,144 @@ Our immediate goal is to mature Aegis into a framework-agnostic GRC platform tha
 
 ## Low-priority
 1. **Containerization & Dockerized Deployments** – Create Dockerfiles for services, add Docker Compose orchestration, and document container-based rollout once core platform features stabilize.
+
+## Compliance Automation Platform Backlog
+
+### 1. Product Vision & Goals
+
+#### Vision
+- Create an automation platform that:
+  - Runs compliance scans using Chef InSpec and/or Ansible STIG/CIS playbooks.
+  - Aggregates and stores results centrally.
+  - Displays compliance vs. non-compliance visually via dashboards.
+  - Provides APIs for reporting, alerting, and evidence generation.
+  - Enables continuous compliance through scheduled or event-driven scans.
+
+#### Strategic Goals
+| Goal | Description |
+| --- | --- |
+| Automate | Replace manual STIG/CIS validation with code-driven scans. |
+| Visualize | Deliver interactive dashboards showing pass/fail, trend, and severity data. |
+| Remediate | Integrate with Ansible for automated fix actions. |
+| Govern | Export results for ATO packages, POA&M items, or eMASS-style evidence. |
+
+### 2. High-Level Epics
+| Epic ID | Epic Name | Description |
+| --- | --- | --- |
+| E1 | Scan Engine Integration | Connect to Chef InSpec and Ansible for compliance data collection. |
+| E2 | Data Storage & Normalization | Store and normalize scan results in a unified schema. |
+| E3 | Compliance Dashboard | Visualize compliance and non-compliance across systems and controls. |
+| E4 | Reporting & Evidence Export | Generate human-readable and machine-readable reports. |
+| E5 | Scheduling & Automation | Enable scheduled scans and event triggers. |
+| E6 | Remediation Automation | Use Ansible to fix failed findings. |
+| E7 | User & Role Management | Manage authentication, authorization, and audit logs. |
+| E8 | API & Integration Layer | Provide REST / GraphQL API for external tools. |
+| E9 | Continuous Improvement | Add trend analysis, risk scoring, and historical baselines. |
+
+### 3. User Stories & Acceptance Criteria
+
+#### Epic E1 — Scan Engine Integration
+- **As a DevSecOps Engineer, I can run a Chef InSpec profile against a target so I can evaluate compliance.**  
+  - CLI/REST trigger runs `inspec exec`; results stored in JSON.
+- **As a System Owner, I can select Ansible playbooks or roles to perform hardening or scans.**  
+  - Drop-down or YAML config to choose Ansible content; logs visible.
+- **As an Admin, I can define credentials and connection types (SSH, WinRM, cloud API).**  
+  - Securely stored secrets; test-connection button.
+- **As a User, I can see scan history per host.**  
+  - Paginated table showing scan date, tool, result ID.
+
+#### Epic E2 — Data Storage & Normalization
+- **As a Developer, I can parse InSpec JSON and Ansible results into a normalized schema.**  
+  - Common fields: control_id, status, severity, evidence.
+- **As a Security Analyst, I can correlate findings across tools.**  
+  - Duplicate detection; unified view by control ID.
+- **As an Admin, I can archive old scans.**  
+  - Retention policy configurable; archived data marked “inactive.”
+
+#### Epic E3 — Compliance Dashboard
+- **As an ISSO, I can view compliance % per system.**  
+  - Donut chart = passed vs failed controls.
+- **As a Manager, I can view non-compliant controls grouped by severity.**  
+  - Table + filter by CAT I/II/III or High/Med/Low.
+- **As a System Owner, I can drill down into a specific finding.**  
+  - Modal or page shows description, evidence, remediation steps.
+- **As an Executive, I can export a dashboard view as PDF/PNG.**  
+  - Button triggers snapshot export.
+
+#### Epic E4 — Reporting & Evidence Export
+- **As an Auditor, I can download compliance reports in CSV/JSON/PDF.**  
+  - Export endpoint and UI button.
+- **As a Security Engineer, I can generate before/after comparisons.**  
+  - Diff view shows delta by control.
+- **As an AO, I can receive a POA&M report listing failed controls.**  
+  - Export grouped by status and due date.
+
+#### Epic E5 — Scheduling & Automation
+- **As a DevOps Lead, I can schedule scans daily, weekly, or on commit.**  
+  - Cron-style scheduler in UI/API.
+- **As a Pipeline Manager, I can trigger scans from CI/CD.**  
+  - GitHub Action/Jenkins step examples.
+- **As a User, I receive email/Slack alerts on scan completion.**  
+  - Configurable notification channels.
+
+#### Epic E6 — Remediation Automation
+- **As a Security Engineer, I can generate Ansible playbooks for failed controls.**  
+  - Auto-generated YAML from findings.
+- **As an ISSO, I can run remediation tasks directly from the UI.**  
+  - “Remediate” button triggers Ansible run.
+- **As an Auditor, I can verify remediations post-run.**  
+  - Follow-up scan automatically scheduled.
+
+#### Epic E7 — User & Role Management
+- **As an Admin, I can create roles (Admin, Engineer, Viewer).**  
+  - RBAC enforced on endpoints.
+- **As a User, I can log in via SSO or CAC.**  
+  - OIDC/SAML integration configured.
+- **As an Auditor, I can view immutable action logs.**  
+  - Tamper-evident audit trail UI.
+
+#### Epic E8 — API & Integration Layer
+- **As a Developer, I can call a REST endpoint to start a scan.**  
+  - `POST /api/scans` accepts JSON payload.
+- **As a Dashboard Developer, I can query compliance data per system or control.**  
+  - `GET /api/results?system_id=` returns filtered data.
+- **As a Tool Integrator, I can send scan results to external GRC systems.**  
+  - Webhook or export function available.
+
+#### Epic E9 — Continuous Improvement
+- **As a Manager, I can see trends over time for compliance scores.**  
+  - Line chart by week/month.
+- **As a Security Engineer, I can calculate risk scores per asset.**  
+  - Weighted scoring based on severity and impact.
+- **As an Analyst, I can compare benchmarks (STIG vs CIS).**  
+  - Toggle benchmark type in dashboard.
+
+### 4. Recommended Sprint Roadmap
+| Sprint | Goal | Key Deliverables |
+| --- | --- | --- |
+| Sprint 1 (MVP) | Integrate Chef InSpec & Ansible runners | CLI execution, JSON parsing, baseline storage. |
+| Sprint 2 | Build data schema + REST API | FastAPI backend, Postgres models, CRUD for scans. |
+| Sprint 3 | Create Compliance Dashboard (UI) | React charts + filters for pass/fail. |
+| Sprint 4 | Add Reporting & Evidence Exports | PDF/CSV reports, delta view. |
+| Sprint 5 | Implement Scheduling & Notifications | Job scheduler + email/Slack alerts. |
+| Sprint 6 | Remediation Automation | Generate/run Ansible fix playbooks. |
+| Sprint 7 | RBAC & Audit Logging | Secure user management. |
+| Sprint 8+ | Trend Analysis & API Integrations | Time-series metrics, external connectors. |
+
+### 5. Example Codex Prompt for Implementation
+You are building a compliance automation platform that integrates Chef InSpec and Ansible.
+
+Sprint 1 (MVP) Objectives:
+1. Scaffold FastAPI backend with modules:
+   - scans (trigger, monitor)
+   - results (store normalized data)
+2. Implement CLI integration:
+   - Run `inspec exec <profile> --reporter json`
+   - Parse JSON to Postgres
+3. Create React frontend:
+   - Upload target config
+   - View basic pass/fail summary
+4. Provide REST endpoints for scan start, list, and result retrieval.
+5. Unit tests for parser and API.
+
+Use PostgreSQL, SQLAlchemy, JWT auth, and Celery for async jobs.

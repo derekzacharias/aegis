@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import {
   AssessmentControl as AssessmentControlModel,
   AssessmentEvidence,
@@ -21,12 +21,14 @@ import { CreateCustomFrameworkDto, CustomControlDto } from './dto/create-custom-
 import { UpdateCustomFrameworkDto } from './dto/update-custom-framework.dto';
 import { UpsertCustomControlsDto } from './dto/upsert-custom-controls.dto';
 import { PublishFrameworkDto } from './dto/publish-framework.dto';
+import { BaselineLevel, ControlMappingOrigin, ControlPriority, FrameworkFamily } from './framework.types';
 import {
-  BaselineLevel,
-  ControlMappingOrigin,
-  ControlPriority,
-  FrameworkFamily
-} from './framework.types';
+  FRAMEWORK_PUBLISH_JOB,
+  FrameworkPublishActor,
+  FrameworkPublishJobPayload,
+  jobQueue,
+  JobQueue
+} from '@compliance/shared';
 import { frameworks as seededFrameworks } from './seed/frameworks.seed';
 import { controls as seededControls } from './seed/controls.seed';
 
@@ -197,7 +199,12 @@ export class FrameworkService {
     privacy: 'PRIVACY'
   };
 
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(FrameworkService.name);
+  private readonly queue: JobQueue;
+
+  constructor(private readonly prisma: PrismaService, @Optional() queue?: JobQueue) {
+    this.queue = queue ?? jobQueue;
+  }
 
   async deleteCustomFramework(organizationId: string, frameworkId: string): Promise<void> {
     const framework = await this.prisma.framework.findFirst({
@@ -452,6 +459,51 @@ export class FrameworkService {
       data: updateData
     });
 
+    await this.prisma.frameworkWarmupCache.deleteMany({
+      where: { frameworkId }
+    });
+
+    try {
+      const publisher = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true
+        }
+      });
+
+      const actor: FrameworkPublishActor = {
+        userId,
+        email: publisher?.email ?? null,
+        name:
+          [publisher?.firstName, publisher?.lastName]
+            .filter((value): value is string => Boolean(value && value.trim().length > 0))
+            .join(' ') || publisher?.email || null
+      };
+
+      const publishedAtIso = updated.publishedAt
+        ? updated.publishedAt.toISOString()
+        : new Date().toISOString();
+
+      const payload: FrameworkPublishJobPayload = {
+        organizationId,
+        frameworkId,
+        frameworkName: updated.name,
+        frameworkVersion: updated.version,
+        publishedAt: publishedAtIso,
+        actor,
+        attempt: 1
+      };
+
+      await this.queue.enqueue<FrameworkPublishJobPayload>(FRAMEWORK_PUBLISH_JOB, payload);
+    } catch (error) {
+      this.logger.warn(
+        `Failed to enqueue framework publish warmup for ${frameworkId}: ${(error as Error).message}`
+      );
+    }
+
     return this.toFrameworkSummary(updated);
   }
 
@@ -462,6 +514,25 @@ export class FrameworkService {
   ): Promise<ControlCatalogResponse> {
     const framework = await this.ensureFrameworkOwnership(organizationId, frameworkId);
     const filters = this.normalizeControlFilters(rawFilters);
+
+    if (this.shouldUseWarmupCache(filters)) {
+      const warmup = await this.prisma.frameworkWarmupCache.findUnique({
+        where: { frameworkId },
+        select: {
+          controlCatalogPayload: true,
+          generatedAt: true
+        }
+      });
+
+      if (warmup?.controlCatalogPayload) {
+        const cached = warmup.controlCatalogPayload as unknown as ControlCatalogResponse;
+        return {
+          ...cached,
+          frameworkId,
+          framework: this.toFrameworkSummary(framework)
+        };
+      }
+    }
 
     const where = this.buildControlWhere(frameworkId, filters, { includeStatusFilter: true });
     const facetWhere = this.buildControlWhere(frameworkId, filters, { includeStatusFilter: false });
@@ -762,6 +833,18 @@ export class FrameworkService {
     }
 
     return where;
+  }
+
+  private shouldUseWarmupCache(filters: ControlCatalogFilters): boolean {
+    return (
+      !filters.search &&
+      !filters.family &&
+      !filters.priority &&
+      !filters.kind &&
+      !filters.status &&
+      filters.page === 1 &&
+      filters.pageSize === 25
+    );
   }
 
   private async generateUniqueSlug(

@@ -1,4 +1,8 @@
-export type ScheduleType = 'evidence-review-reminder' | 'recurring-assessment' | 'agent-health-check';
+export type ScheduleType =
+  | 'evidence-review-reminder'
+  | 'recurring-assessment'
+  | 'agent-health-check'
+  | 'profile-contact-reminder';
 
 export type ScheduleFrequency = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'custom';
 

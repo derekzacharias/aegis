@@ -66,7 +66,12 @@ class ScheduleOptionsDto implements ScheduleOptions {
   payload?: Record<string, unknown>;
 }
 
-const scheduleTypeValues = ['evidence-review-reminder', 'recurring-assessment', 'agent-health-check'] as const;
+const scheduleTypeValues = [
+  'evidence-review-reminder',
+  'recurring-assessment',
+  'agent-health-check',
+  'profile-contact-reminder'
+] as const;
 const scheduleFrequencyValues = ['daily', 'weekly', 'monthly', 'quarterly', 'custom'] as const;
 
 class CreateScheduleDto {

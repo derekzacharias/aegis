@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import dayjs from 'dayjs';
 import { randomUUID } from 'crypto';
 import {
+  PROFILE_CRITICAL_FIELDS,
   ScheduleDefinition,
   ScheduleExecutionResult,
   ScheduleFrequency,
@@ -160,6 +161,18 @@ export class SchedulerService {
         description: 'Runs integrity checks for connected automation agents.',
         type: 'agent-health-check',
         frequency: 'daily'
+      },
+      {
+        organizationId: 'org-sample',
+        name: 'Weekly Profile Completeness Reminder',
+        description: 'Notifies users with incomplete or stale profile contact details.',
+        type: 'profile-contact-reminder',
+        frequency: 'weekly',
+        options: {
+          payload: {
+            criticalFields: PROFILE_CRITICAL_FIELDS
+          }
+        }
       }
     ];
 

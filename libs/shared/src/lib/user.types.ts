@@ -44,3 +44,28 @@ export interface BulkRoleUpdateInput {
   userIds: string[];
   role: UserRole;
 }
+
+export const PROFILE_CRITICAL_FIELDS = ['firstName', 'lastName', 'jobTitle', 'phoneNumber', 'timezone'] as const;
+
+export type ProfileCriticalField = (typeof PROFILE_CRITICAL_FIELDS)[number];
+
+export const CONTACT_STALE_DAYS = 90;
+
+export interface ProfileCompletenessEntry {
+  id: string;
+  email: string;
+  name: string | null;
+  missingFields: ProfileCriticalField[];
+  isStale: boolean;
+  lastUpdated: string | null;
+}
+
+export interface ProfileCompletenessSummary {
+  total: number;
+  complete: number;
+  incomplete: number;
+  stale: number;
+  completenessRate: number;
+  missingFieldCounts: Record<ProfileCriticalField, number>;
+  attention: ProfileCompletenessEntry[];
+}
