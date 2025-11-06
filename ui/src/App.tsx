@@ -1,10 +1,12 @@
 import { Link, Route, Routes } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
 import DeltaReport from './pages/DeltaReport';
+import Documentation from './pages/Documentation';
 
 const navigation = [
   { to: '/', label: 'Dashboard' },
   { to: '/delta', label: 'Delta Report' },
+  { to: '/docs', label: 'Documentation' },
 ];
 
 export default function App() {
@@ -24,6 +26,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/delta" element={<DeltaReport />} />
+          <Route path="/docs" element={<Documentation />} />
         </Routes>
       </main>
     </div>
