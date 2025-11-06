@@ -1,54 +1,102 @@
 import { Link } from 'react-router-dom';
 
-const highlights = [
+const quickstartTracks = [
   {
-    title: 'Automated Compliance Workflows',
-    description:
-      'Trigger Chef InSpec scans, Ansible hardening, and evidence ingestion from a single orchestration plane with guardrails baked in.',
+    title: 'Kick-off Checklist',
+    description: 'Authenticate, seed sample data, and review RBAC defaults before inviting collaborators.',
+    action: 'Follow the quickstart →',
+    anchor: '#quickstart',
   },
   {
-    title: 'Actionable Dashboards',
-    description:
-      'Visualize control health, framework coverage, and remediation velocity so analysts can prioritize the riskiest gaps first.',
+    title: 'Automation Playbooks',
+    description: 'Trigger Chef InSpec scans, enforce baselines with Ansible, and schedule verification jobs.',
+    action: 'Browse automations →',
+    anchor: '#automations',
   },
   {
-    title: 'Collaboration Ready',
-    description:
-      'Share context across security, compliance, and engineering teams with audit trails, policy approvals, and service user guidance.',
+    title: 'Reporting Guides',
+    description: 'Publish assessments, export delta reports, and share auditor-ready evidence packets.',
+    action: 'Visit reporting docs →',
+    anchor: '#reporting',
   },
 ];
 
-const guideSections = [
+const guideCatalog = [
   {
-    heading: 'Why AegisGRC',
+    id: 'quickstart',
+    heading: 'Getting started',
+    eyebrow: 'Deploy with confidence',
+    summary:
+      'Stand up AegisGRC locally or in staging, wire service credentials, and validate the seeded demo workflows before onboarding additional teams.',
     items: [
-      'Normalize scan and ticket data into a common controls language.',
-      'Map evidence to frameworks with reusable crosswalks and AI suggestions.',
-      'Track remediation jobs with automated verification scans.',
+      'Provision service users for automation agents and rotate credentials with refresh tokens.',
+      'Run docker-compose to boot API, worker, and web clients; execute seed scripts for demo data.',
+      'Review environment variable catalog and configure secrets in your preferred vault before production rollout.',
     ],
   },
   {
-    heading: 'Key Benefits',
+    id: 'automations',
+    heading: 'Automation blueprints',
+    eyebrow: 'Chef InSpec & Ansible',
+    summary:
+      'Design control coverage across scan, hardening, and validation phases. Each blueprint includes prerequisites, expected outcomes, and troubleshooting tips.',
     items: [
-      'Security-first defaults: RBAC, JWT auth, encrypted storage, and audit-ready logs.',
-      'Operational clarity: structured job telemetry, health monitors, and scheduler insights.',
-      'Confidence at scale: idempotent automations with retry logic and guardrails for infrastructure changes.',
+      'Chef InSpec scans: select profiles, map to assets, collect JSON artifacts, and normalize findings.',
+      'Ansible remediation: run in check mode, capture drifts, enforce remediations, and trigger follow-up scans.',
+      'Scheduler recipes: queue recurring compliance jobs, health checks, and notification digests.',
     ],
   },
   {
-    heading: 'Compass for Implementation',
+    id: 'reporting',
+    heading: 'Reporting & evidence',
+    eyebrow: 'Audit-ready outputs',
+    summary:
+      'Translate operational telemetry into executive-ready dashboards, compliance scorecards, and release note summaries for auditors.',
     items: [
-      'Start with seeded frameworks and assessments, then tailor controls to your mission needs.',
-      'Connect Chef InSpec, Ansible, and evidence sources from Integrations → Automation Agents.',
-      'Promote compliant baselines through the Delta Report to prove risk reduction over time.',
+      'Generate delta reports comparing control posture between scans with exportable CSV/PDF artifacts.',
+      'Track evidence lifecycle: upload, antivirus scanning, approval, and reuse across frameworks.',
+      'Capture remediation attestations, link policy updates, and document POA&Ms for audit context.',
     ],
+  },
+];
+
+const lifecycle = [
+  {
+    phase: '01. Discover',
+    title: 'Map your environment',
+    detail:
+      'Connect cloud accounts, inventory assets, and align them with baseline frameworks so future scans have clear scope.',
+  },
+  {
+    phase: '02. Automate',
+    title: 'Enforce continuously',
+    detail:
+      'Use orchestrated InSpec and Ansible jobs to assess drift, enforce configurations, and verify remediation steps automatically.',
+  },
+  {
+    phase: '03. Report',
+    title: 'Share outcomes',
+    detail:
+      'Distribute dashboards, delta reports, and evidence bundles that highlight compliance status across teams and time.',
   },
 ];
 
 const resourceLinks = [
-  { label: 'Integration Playbooks', to: '/docs/integrations' },
-  { label: 'Scheduler Deep Dive', to: '/docs/scheduler' },
-  { label: 'Policy Automation Guides', to: '/docs/policies' },
+  {
+    label: 'Release notes',
+    description: 'Summaries for each platform iteration with upgrade guidance and migration tips.',
+    href: '#release-notes',
+  },
+  {
+    label: 'API reference',
+    description: 'OpenAPI endpoints covering authentication, scans, findings, and remediation flows.',
+    href: '#api-reference',
+  },
+  {
+    label: 'Support playbook',
+    description: 'Escalation paths, SLAs, and troubleshooting checklists for operations teams.',
+    href: '#support',
+  },
 ];
 
 export default function Documentation() {
@@ -57,60 +105,114 @@ export default function Documentation() {
       <section className="documentation-hero">
         <div className="hero-content">
           <p className="hero-eyebrow">Documentation</p>
-          <h2>Build on AegisGRC with confidence</h2>
+          <h2>Operational playbooks for AegisGRC</h2>
           <p>
-            Use these guides to configure automation agents, wire integrations, and prove compliance posture to leadership.
-            Every article is grounded in production scenarios so your team can get started quickly and scale securely.
+            Explore the guides, automation runbooks, and reporting best practices that keep AegisGRC deployments audit-ready.
+            Each section mirrors real implementation milestones so your team can move from proof-of-concept to production with
+            confidence.
           </p>
           <div className="hero-actions">
             <Link to="/" className="primary-action">
-              View Dashboard
+              Return to dashboard
             </Link>
-            <a className="secondary-action" href="#guides">
-              Explore Guides
+            <a className="secondary-action" href="#quickstart">
+              Jump to quickstart
             </a>
           </div>
         </div>
-        <div className="hero-highlights">
-          {highlights.map((highlight) => (
-            <article key={highlight.title}>
-              <h3>{highlight.title}</h3>
-              <p>{highlight.description}</p>
+        <div className="hero-panels">
+          {quickstartTracks.map((track) => (
+            <article key={track.title}>
+              <header>
+                <p className="panel-eyebrow">{track.title}</p>
+                <h3>{track.description}</h3>
+              </header>
+              <a href={track.anchor} className="panel-action">
+                {track.action}
+              </a>
             </article>
           ))}
         </div>
       </section>
 
-      <section id="guides" className="documentation-content">
-        {guideSections.map((section) => (
-          <article key={section.heading}>
-            <header>
-              <h3>{section.heading}</h3>
-            </header>
+      <section className="documentation-layout">
+        <aside className="side-nav">
+          <h4>Guide catalog</h4>
+          <nav>
             <ul>
-              {section.items.map((item) => (
-                <li key={item}>{item}</li>
+              {guideCatalog.map((section) => (
+                <li key={section.id}>
+                  <a href={`#${section.id}`}>{section.heading}</a>
+                </li>
               ))}
             </ul>
-          </article>
-        ))}
+          </nav>
+        </aside>
+
+        <div className="guide-sections">
+          {guideCatalog.map((section) => (
+            <article key={section.id} id={section.id}>
+              <p className="section-eyebrow">{section.eyebrow}</p>
+              <div className="section-header">
+                <h2>{section.heading}</h2>
+                <p>{section.summary}</p>
+              </div>
+              <ul>
+                {section.items.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </article>
+          ))}
+        </div>
       </section>
 
-      <section className="documentation-footer">
-        <div>
-          <h3>More resources</h3>
+      <section className="lifecycle" id="release-notes">
+        <header>
+          <p className="section-eyebrow">Implementation milestones</p>
+          <h2>Lifecycle roadmap</h2>
           <p>
-            Keep exploring the platform capabilities with our deep dives, sample data walkthroughs, and automation checklists.
-            Each guide is updated alongside product releases, so bookmark the docs hub and subscribe to release notes.
+            Track your deployment progress across discovery, automation, and reporting. Pair each milestone with structured
+            logging, metrics, and alerts so stakeholders have clear visibility into compliance coverage.
           </p>
-        </div>
-        <nav>
-          {resourceLinks.map((resource) => (
-            <a key={resource.label} href={resource.to}>
-              {resource.label}
-            </a>
+        </header>
+        <div className="lifecycle-grid">
+          {lifecycle.map((stage) => (
+            <article key={stage.phase}>
+              <p className="phase-label">{stage.phase}</p>
+              <h3>{stage.title}</h3>
+              <p>{stage.detail}</p>
+            </article>
           ))}
-        </nav>
+        </div>
+      </section>
+
+      <section className="resource-grid" id="support">
+        <header>
+          <p className="section-eyebrow">Keep learning</p>
+          <h2>Reference materials</h2>
+        </header>
+        <div className="resource-cards">
+          {resourceLinks.map((resource) => (
+            <article key={resource.label}>
+              <h3>{resource.label}</h3>
+              <p>{resource.description}</p>
+              <a href={resource.href} className="panel-action">
+                View details
+              </a>
+            </article>
+          ))}
+        </div>
+        <div className="support-callout" id="api-reference">
+          <h3>Need implementation help?</h3>
+          <p>
+            Open a support ticket with environment metadata, recent job IDs, and any error logs so our team can triage quickly.
+            For production incidents, follow the 24/7 escalation runbook to reach the on-call engineer.
+          </p>
+          <Link to="/delta" className="primary-action">
+            Review delta report workflow
+          </Link>
+        </div>
       </section>
     </div>
   );
